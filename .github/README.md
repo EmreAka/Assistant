@@ -10,6 +10,7 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 - The implementation is intentionally minimal.
 - A clean and extensible command infrastructure is already in place.
 - Current command support is limited to basic bot startup behavior.
+- A Hangfire recurring job is configured to send end-of-workday reminders to registered users.
 
 ## Commands
 The bot currently supports the following command:
@@ -19,6 +20,18 @@ The bot currently supports the following command:
 | `/start` | Starts the assistant and sends a welcome message. |
 
 Bot commands are registered with Telegram during application startup via `SetMyCommands`.
+
+## Scheduled Jobs (Hangfire)
+The project includes a recurring Hangfire job:
+
+| Job ID | Schedule (Cron) | Time Zone | Description |
+| --- | --- | --- | --- |
+| `workday-end-reminder` | `0 14 * * 1-5` | UTC | Runs every weekday at 14:00 UTC and sends a workday-end reminder message to all users in `TelegramUsers`. |
+
+Implementation notes:
+- `WorkdayEndReminderJob` fetches chat IDs from the database and sends reminders one-by-one via `ITelegramBotClient`.
+- Delivery failures are logged per chat; successful and failed counts are summarized at the end of each run.
+- The recurring schedule is registered at application startup in `UseHangfireRecurringJobs`.
 
 ## Architecture Overview
 - `IBotCommand`
@@ -59,6 +72,17 @@ Set the `Bot` section in `Assistant.Api/appsettings.Development.json`:
 }
 ```
 
+Also configure database connection strings in the same file:
+
+```json
+{
+  "ConnectionStrings": {
+    "PostgreSQL": "Host=...;Port=5432;Database=...;Username=...;Password=...",
+    "HangfireDb": "Host=...;Port=5432;Database=...;Username=...;Password=..."
+  }
+}
+```
+
 ### Run
 ```bash
 dotnet restore
@@ -67,6 +91,9 @@ dotnet run --project Assistant.Api
 
 Webhook endpoint used by this API:
 - `POST /bot/update`
+
+In development, Hangfire Dashboard is available at:
+- `GET /hangfire`
 
 ## Project Structure
 ```text
