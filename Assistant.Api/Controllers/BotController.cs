@@ -1,7 +1,10 @@
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Services.Abstracts;
+using Microsoft.Extensions.Primitives;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using System.Security.Cryptography;
+using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -24,7 +27,7 @@ public class BotController : ControllerBase
     public async Task<IActionResult> ReceiveUpdate([FromBody] Update update, CancellationToken cancellationToken)
     {
         if (!Request.Headers.TryGetValue("X-Telegram-Bot-Api-Secret-Token", out var headerValue) ||
-        headerValue != _botOptions.Value.SecretToken)
+            !IsSecretTokenValid(headerValue, _botOptions.Value.SecretToken))
         {
             _logger.LogWarning("Unauthorized webhook request received.");
             return Unauthorized();
@@ -47,6 +50,23 @@ public class BotController : ControllerBase
         await _commandUpdateHandler.HandleAsync(update, _botClient, cancellationToken);
 
         return Ok(update);
+    }
+
+    private static bool IsSecretTokenValid(StringValues headerValues, string configuredSecret)
+    {
+        if (headerValues.Count != 1)
+            return false;
+
+        var headerSecret = headerValues[0];
+        if (string.IsNullOrWhiteSpace(headerSecret) || string.IsNullOrWhiteSpace(configuredSecret))
+            return false;
+
+        var headerBytes = Encoding.UTF8.GetBytes(headerSecret);
+        var configuredBytes = Encoding.UTF8.GetBytes(configuredSecret);
+        var headerHash = SHA256.HashData(headerBytes);
+        var configuredHash = SHA256.HashData(configuredBytes);
+
+        return CryptographicOperations.FixedTimeEquals(headerHash, configuredHash);
     }
 
     private static long? GetChatId(Update update)
