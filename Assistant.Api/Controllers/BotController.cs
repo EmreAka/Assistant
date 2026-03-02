@@ -17,7 +17,7 @@ public class BotController : ControllerBase
     private readonly IOptions<BotOptions> _botOptions;
 
     public BotController(ITelegramBotClient botClient, ILogger<BotController> logger, ICommandUpdateHandler commandUpdateHandler, IOptions<BotOptions> botOptions)
-        => (_botClient, _logger, _commandUpdateHandler, this._botOptions) = (botClient, logger, commandUpdateHandler, botOptions);
+        => (_botClient, _logger, _commandUpdateHandler, _botOptions) = (botClient, logger, commandUpdateHandler, botOptions);
 
 
     [HttpPost("update")]
@@ -30,26 +30,36 @@ public class BotController : ControllerBase
             return Unauthorized();
         }
 
-        /* // Log the received update for debugging purposes
-        _logger.LogInformation("Received update: {UpdateId} - {UpdateType}", update.Id, update.Type);
+        var chatId = GetChatId(update);
+        var allowedChatIds = _botOptions.Value.AllowedChatIds;
+        if (chatId.HasValue && allowedChatIds.Count > 0 && !allowedChatIds.Contains(chatId.Value))
+        {
+            _logger.LogWarning("Unauthorized chat id: {ChatId}", chatId.Value);
 
-        // Sadece mesaj geldiğinde ve içinde text olduğunda çalış
-        if (update.Message is not { Text: not null } message)
+            await _botClient.SendMessage(
+                chatId: chatId.Value,
+                text: "Bu botu kullanmaya izniniz yok.",
+                cancellationToken: cancellationToken);
+
             return Ok();
-
-        long chatId = message.Chat.Id;
-        string messageText = message.Text;
-
-        _logger.LogInformation("Received message: {MessageText} (Chat ID: {ChatId})", messageText, chatId);
-
-        // Gelen mesajı aynen geri gönderiyoruz (Echo)
-        await _botClient.SendMessage(
-            chatId: chatId,
-            text: $"Sen dedin ki: {messageText}"
-        ); */
+        }
 
         await _commandUpdateHandler.HandleAsync(update, _botClient, cancellationToken);
 
         return Ok(update);
+    }
+
+    private static long? GetChatId(Update update)
+    {
+        if (update.Message?.Chat is not null)
+            return update.Message.Chat.Id;
+
+        if (update.EditedMessage?.Chat is not null)
+            return update.EditedMessage.Chat.Id;
+
+        if (update.CallbackQuery?.Message?.Chat is not null)
+            return update.CallbackQuery.Message.Chat.Id;
+
+        return null;
     }
 }
