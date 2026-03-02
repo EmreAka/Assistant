@@ -1,20 +1,33 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
         <TargetFramework>net8.0</TargetFramework>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
-    </PropertyGroup>
+      <UserSecretsId>35406df2-6a87-433c-918c-1d6f31ce342a</UserSecretsId>
+  </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0"/>
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+        <PackageReference Include="Telegram.Bot" Version="22.9.0" />
     </ItemGroup>
 
     <ItemGroup>
       <Content Include="..\.dockerignore">
         <Link>.dockerignore</Link>
       </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Domain/Configurations/" />
+      <Folder Include="Domain/Dtos/" />
+      <Folder Include="Domain/Entities/" />
+      <Folder Include="Domain/Events/" />
+      <Folder Include="Extensions/" />
+      <Folder Include="Services/" />
+      <Folder Include="Services/Abstracts/" />
+      <Folder Include="Services/Concretes/" />
     </ItemGroup>
 
 </Project>
