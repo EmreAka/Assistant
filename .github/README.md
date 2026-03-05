@@ -9,17 +9,21 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 ## Current Status
 - The implementation is intentionally minimal.
 - A clean and extensible command infrastructure is already in place.
-- Current command support is limited to basic bot startup behavior.
+- Current command support includes startup and natural-language reminder creation.
 - A Hangfire recurring job is configured to send end-of-workday reminders to registered users.
 
 ## Commands
-The bot currently supports the following command:
+The bot currently supports the following commands:
 
 | Command | Description |
 | --- | --- |
 | `/start` | Starts the assistant and sends a welcome message. |
+| `/remind` | Creates one-time or recurring reminders from natural language input (private chat only). |
 
 Bot commands are registered with Telegram during application startup via `SetMyCommands`.
+
+Example:
+- `/remind 5 saat sonra Mustafa abiyle toplantımı hatırlat`
 
 ## Scheduled Jobs (Hangfire)
 The project includes a recurring Hangfire job:
