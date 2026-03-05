@@ -12,12 +12,17 @@ public static class BotServiceRegistration
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.Configure<AiOptions>(configuration.GetSection("AI"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
 
         services.AddSingleton<ITelegramBotClient>(provider =>
             new TelegramBotClient(
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
 
+        services.AddScoped<IReminderSchedulerService, ReminderSchedulerService>();
+        services.AddScoped<IReminderAgentService, ReminderAgentService>();
+
+        services.AddTransient<IBotCommand, RemindCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommandFactory, BotCommandFactory>();
         services.AddTransient<ICommandUpdateHandler, CommandUpdateHandler>();

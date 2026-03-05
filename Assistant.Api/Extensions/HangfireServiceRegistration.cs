@@ -19,6 +19,7 @@ public static class HangfireServiceRegistration
                 options.UseNpgsqlConnection(hangfireConnectionString)));
 
         services.AddHangfireServer();
+        services.AddScoped<ReminderDispatchJob>();
         services.AddScoped<WorkdayEndReminderJob>();
 
         return services;
