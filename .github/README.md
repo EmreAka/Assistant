@@ -59,11 +59,12 @@ Implementation notes:
 ### Prerequisites
 - .NET 8 SDK
 - A Telegram bot token
+- A Google Gemini API key
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
 
 ### Configuration
-Set the `Bot` section in `Assistant.Api/appsettings.Development.json`:
+Set the `Bot` and `AI` sections in `Assistant.Api/appsettings.Development.json`:
 
 ```json
 {
@@ -72,6 +73,9 @@ Set the `Bot` section in `Assistant.Api/appsettings.Development.json`:
     "WebhookUrl": "YOUR_WEBHOOK_URL",
     "SecretToken": "YOUR_SECRET_TOKEN",
     "AllowedChatIds": [555322148]
+  },
+  "AI": {
+    "GoogleApiKey": "YOUR_GOOGLE_GEMINI_API_KEY"
   }
 }
 ```
