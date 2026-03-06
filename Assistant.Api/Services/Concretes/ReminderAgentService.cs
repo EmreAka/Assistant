@@ -74,12 +74,6 @@ public class ReminderAgentService(
             {
                 if (reminderToolFunctions.LastResult.Status == ReminderToolStatuses.Created)
                 {
-                    var createdMessage = reminderToolFunctions.LastResult.HumanSummary;
-                    if (!string.IsNullOrWhiteSpace(createdMessage))
-                    {
-                        return new ReminderAgentResponse(true, responseText);
-                    }
-
                     if (!string.IsNullOrWhiteSpace(responseText))
                     {
                         return new ReminderAgentResponse(true, responseText);
@@ -160,7 +154,7 @@ public class ReminderAgentService(
                """;
     }
 
-    private static bool TryResolveTimeZone(string timeZoneId, out TimeZoneInfo timeZoneInfo)
+    private bool TryResolveTimeZone(string timeZoneId, out TimeZoneInfo timeZoneInfo)
     {
         try
         {
@@ -169,22 +163,11 @@ public class ReminderAgentService(
         }
         catch (TimeZoneNotFoundException)
         {
-            if (string.Equals(timeZoneId, "Europe/Istanbul", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Turkey Standard Time");
-                    return true;
-                }
-                catch
-                {
-                    // ignored
-                }
-            }
+            logger.LogWarning("Time zone ID '{TimeZoneId}' not found. Attempting fallback for common aliases.", timeZoneId);
         }
         catch (InvalidTimeZoneException)
         {
-            // ignored
+            logger.LogWarning("Time zone ID '{TimeZoneId}' is invalid.", timeZoneId);
         }
 
         timeZoneInfo = TimeZoneInfo.Utc;

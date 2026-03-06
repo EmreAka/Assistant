@@ -4,16 +4,14 @@ public class ReminderToolResponse
 {
     public string Status { get; init; } = string.Empty;
     public string? ReminderId { get; init; }
-    public string? HumanSummary { get; init; }
     public string? Error { get; init; }
 
-    public static ReminderToolResponse Created(Guid reminderId, string summary)
+    public static ReminderToolResponse Created(Guid reminderId)
     {
         return new ReminderToolResponse
         {
             Status = ReminderToolStatuses.Created,
             ReminderId = reminderId.ToString("D"),
-            HumanSummary = summary
         };
     }
 

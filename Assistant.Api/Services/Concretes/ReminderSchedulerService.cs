@@ -134,8 +134,7 @@ public partial class ReminderSchedulerService(
 
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            var summary = BuildSummary(reminder, timeZoneInfo);
-            return ReminderToolResponse.Created(reminder.ReminderId, summary);
+            return ReminderToolResponse.Created(reminder.ReminderId);
         }
         catch (Exception exception)
         {
@@ -153,17 +152,6 @@ public partial class ReminderSchedulerService(
     private static string BuildRecurringJobId(long chatId, Guid reminderId)
     {
         return $"reminder:{chatId}:{reminderId:D}";
-    }
-
-    private static string BuildSummary(Reminder reminder, TimeZoneInfo timeZoneInfo)
-    {
-        if (reminder.IsRecurring)
-        {
-            return $"Hatırlatma oluşturuldu. Tekrarlı çalışma: `{reminder.CronExpression}` ({timeZoneInfo.Id}).";
-        }
-
-        var localRunAt = TimeZoneInfo.ConvertTimeFromUtc(reminder.RunAtUtc!.Value, timeZoneInfo);
-        return $"Hatırlatma oluşturuldu. Zaman: {localRunAt:yyyy-MM-dd HH:mm} ({timeZoneInfo.Id}).";
     }
 
     private static bool IsValidCron(string cronExpression)
@@ -227,7 +215,7 @@ public partial class ReminderSchedulerService(
         }
     }
 
-    private static bool TryResolveTimeZone(string timeZoneId, out TimeZoneInfo timeZoneInfo)
+    private bool TryResolveTimeZone(string timeZoneId, out TimeZoneInfo timeZoneInfo)
     {
         try
         {
@@ -236,23 +224,11 @@ public partial class ReminderSchedulerService(
         }
         catch (TimeZoneNotFoundException)
         {
-            // Fallback for Windows hosted deployments.
-            if (string.Equals(timeZoneId, "Europe/Istanbul", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Turkey Standard Time");
-                    return true;
-                }
-                catch
-                {
-                    // ignored
-                }
-            }
+            logger.LogWarning("Time zone ID '{TimeZoneId}' not found. Attempting fallback for common aliases.", timeZoneId);
         }
         catch (InvalidTimeZoneException)
         {
-            // ignored
+            logger.LogWarning("Time zone ID '{TimeZoneId}' is invalid.", timeZoneId);
         }
 
         timeZoneInfo = TimeZoneInfo.Utc;
