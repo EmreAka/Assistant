@@ -77,7 +77,7 @@ public class ReminderAgentService(
                     var createdMessage = reminderToolFunctions.LastResult.HumanSummary;
                     if (!string.IsNullOrWhiteSpace(createdMessage))
                     {
-                        return new ReminderAgentResponse(true, createdMessage);
+                        return new ReminderAgentResponse(true, responseText);
                     }
 
                     if (!string.IsNullOrWhiteSpace(responseText))
