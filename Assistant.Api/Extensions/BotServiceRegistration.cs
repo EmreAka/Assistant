@@ -20,6 +20,7 @@ public static class BotServiceRegistration
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
 
         services.AddScoped<IReminderSchedulerService, ReminderSchedulerService>();
+        services.AddScoped<IPersonalityService, PersonalityService>();
         services.AddScoped<IReminderAgentService, ReminderAgentService>();
 
         services.AddTransient<IBotCommand, RemindCommand>();

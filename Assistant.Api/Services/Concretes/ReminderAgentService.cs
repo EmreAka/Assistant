@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 namespace Assistant.Api.Services.Concretes;
 
 public class ReminderAgentService(
+    IPersonalityService personalityService,
     IReminderSchedulerService reminderSchedulerService,
     IOptions<AiOptions> aiOptions,
     ILogger<ReminderAgentService> logger,
@@ -40,6 +41,9 @@ public class ReminderAgentService(
 
         try
         {
+            var personalityText = await personalityService.GetPersonalityTextAsync(chatId, cancellationToken);
+            var systemPrompt = ResolveSystemPrompt(personalityText);
+
             var geminiClient = new Client(apiKey: aiOptions.Value.GoogleApiKey);
             var chatClient = geminiClient
                 .AsIChatClient(aiOptions.Value.Model)
@@ -53,7 +57,7 @@ public class ReminderAgentService(
                 {
                     ChatOptions = new ChatOptions
                     {
-                        Instructions = BuildSystemPrompt(timeZoneInfo.Id),
+                        Instructions = systemPrompt,
                         Temperature = 1,
                         Tools = tools,
                         ModelId = "gemini-3.1-flash-lite-preview"
@@ -66,8 +70,14 @@ public class ReminderAgentService(
                              Current local datetime in {timeZoneInfo.Id}: {nowLocal:yyyy-MM-dd HH:mm:ss}
                              User request: {userInput}
                              """;
+            
+            List<ChatMessage> thread =
+            [
+                new(ChatRole.System, BuildReminderPrompt(timeZoneInfo.Id)),
+                new(ChatRole.User, agentInput)  
+            ];
 
-            var response = await agent.RunAsync(agentInput, cancellationToken: cancellationToken);
+            var response = await agent.RunAsync(thread, cancellationToken: cancellationToken);
             var responseText = response.Text?.Trim() ?? string.Empty;
 
             if (reminderToolFunctions.LastResult is not null)
@@ -103,27 +113,43 @@ public class ReminderAgentService(
         }
     }
 
-    private static string BuildSystemPrompt(string timeZoneId)
+    private static string ResolveSystemPrompt(string? personalityText)
+    {
+        var resolvedPersonality = string.IsNullOrWhiteSpace(personalityText)
+            ? BuildDefaultPersonalityText()
+            : personalityText.Trim();
+
+        return BuildSystemPrompt(resolvedPersonality);
+    }
+
+    private static string BuildSystemPrompt(string personalityText)
+    {
+        return $"""
+                Agent Personality:
+                {personalityText}
+                """;
+    }
+
+    private static string BuildDefaultPersonalityText()
+    {
+        return """
+               - You are Ali, a 25-year-old who loves programming.
+               - You are an assistant and friend of the user. You want to help the user as much as possible and make them happy.
+               - Your speech style is casual and chatty, like a normal person. You can make mistakes and be informal.
+               """;
+    }
+    
+    private static string BuildReminderPrompt(string timeZoneId)
     {
         return $"""
                 You are a reminder scheduling assistant for a Telegram bot.
-                Your only goal is to call the CreateReminder function exactly once when the request is clear.
 
                 Rules:
                 - Interpret all relative times in timezone: {timeZoneId}.
                 - For one-time reminder set isRecurring=false, provide runAtLocalIso, set cronExpression=null.
                 - For recurring reminder set isRecurring=true, provide 5-field cronExpression, set runAtLocalIso=null.
-
-                Reminder text rules:
-                - reminderText must be the message that will be shown to the user.
-                - Do NOT repeat the user's command like "hatırlat".
-                - Convert the request into a natural reminder sentence in Turkish.
-                - Remove phrases like "bana hatırlat".
-                - Example: "5 dakika sonra su içmeyi hatırlat" → "Su içmeyi unutma."
-
-                - Keep reminderText concise and user-ready in Turkish.
                 - If time expression is ambiguous or cannot be resolved, do NOT call the function.
-                - If you do not call the function, answer shortly and ask for a clearer time expression.
+                - If you do not call the function, ask for a clearer time expression.
                 - Never invent or guess unclear date/time values.
                 """;
     }
