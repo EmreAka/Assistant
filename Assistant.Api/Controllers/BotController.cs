@@ -1,5 +1,6 @@
 using Assistant.Api.Domain.Configurations;
-using Assistant.Api.Services.Abstracts;
+using Assistant.Api.Services.Concretes;
+using Hangfire;
 using Microsoft.Extensions.Primitives;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -16,11 +17,11 @@ public class BotController : ControllerBase
 {
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<BotController> _logger;
-    private readonly ICommandUpdateHandler _commandUpdateHandler;
+    private readonly IBackgroundJobClient _backgroundJobClient;
     private readonly IOptions<BotOptions> _botOptions;
 
-    public BotController(ITelegramBotClient botClient, ILogger<BotController> logger, ICommandUpdateHandler commandUpdateHandler, IOptions<BotOptions> botOptions)
-        => (_botClient, _logger, _commandUpdateHandler, _botOptions) = (botClient, logger, commandUpdateHandler, botOptions);
+    public BotController(ITelegramBotClient botClient, ILogger<BotController> logger, IBackgroundJobClient backgroundJobClient, IOptions<BotOptions> botOptions)
+        => (_botClient, _logger, _backgroundJobClient, _botOptions) = (botClient, logger, backgroundJobClient, botOptions);
 
 
     [HttpPost("update")]
@@ -47,9 +48,18 @@ public class BotController : ControllerBase
             return Ok();
         }
 
-        await _commandUpdateHandler.HandleAsync(update, _botClient, cancellationToken);
+        try
+        {
+            var jobId = _backgroundJobClient.Enqueue<CommandUpdateJob>(job => job.ExecuteAsync(update));
+            _logger.LogInformation("Queued Telegram update for background processing. UpdateId: {UpdateId}, JobId: {JobId}", update.Id, jobId);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogError(exception, "Failed to enqueue Telegram update. UpdateId: {UpdateId}", update.Id);
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
 
-        return Ok(update);
+        return Ok();
     }
 
     private static bool IsSecretTokenValid(StringValues headerValues, string configuredSecret)

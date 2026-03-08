@@ -3,6 +3,7 @@ using System;
 using Assistant.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Assistant.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260307175252_AddExpenseTable")]
+    partial class AddExpenseTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -63,13 +66,10 @@ namespace Assistant.Api.Data.Migrations
                         .HasColumnType("numeric")
                         .HasColumnName("amount");
 
-                    b.Property<DateTime>("BillingPeriodEndDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("billing_period_end_date");
-
-                    b.Property<DateTime>("BillingPeriodStartDate")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("billing_period_start_date");
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("category");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -86,9 +86,17 @@ namespace Assistant.Api.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
+                    b.Property<string>("RawData")
+                        .HasColumnType("text")
+                        .HasColumnName("raw_data");
+
                     b.Property<int>("TelegramUserId")
                         .HasColumnType("integer")
                         .HasColumnName("telegram_user_id");
+
+                    b.Property<DateTime>("TransactionDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("transaction_date");
 
                     b.HasKey("Id");
 
