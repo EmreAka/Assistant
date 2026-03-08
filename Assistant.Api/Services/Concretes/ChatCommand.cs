@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using System.ClientModel;
+using Telegram.Bot.Types.Enums;
 
 namespace Assistant.Api.Services.Concretes;
 
@@ -99,6 +100,7 @@ public class ChatCommand(
             await client.SendMessage(
                 chatId: chatId,
                 text: responseText,
+                parseMode: ParseMode.Markdown,
                 cancellationToken: cancellationToken
             );
         }
