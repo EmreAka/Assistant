@@ -41,9 +41,6 @@ public class ReminderAgentService(
 
         try
         {
-            var personalityText = await personalityService.GetPersonalityTextAsync(chatId, cancellationToken);
-            var systemPrompt = ResolveSystemPrompt(personalityText);
-
             var geminiClient = new Client(apiKey: aiOptions.Value.GoogleApiKey);
             var chatClient = geminiClient
                 .AsIChatClient(aiOptions.Value.Model)
@@ -57,11 +54,11 @@ public class ReminderAgentService(
                 {
                     ChatOptions = new ChatOptions
                     {
-                        Instructions = systemPrompt,
                         Temperature = 1,
                         Tools = tools,
                         ModelId = "gemini-3.1-flash-lite-preview"
-                    }
+                    },
+                    AIContextProviders = [new PersonalityContextProvider(chatId, personalityService)]
                 }
             );
             
@@ -111,32 +108,6 @@ public class ReminderAgentService(
                 "Hatırlatma oluşturulamadı. Lütfen tekrar dener misin?"
             );
         }
-    }
-
-    private static string ResolveSystemPrompt(string? personalityText)
-    {
-        var resolvedPersonality = string.IsNullOrWhiteSpace(personalityText)
-            ? BuildDefaultPersonalityText()
-            : personalityText.Trim();
-
-        return BuildSystemPrompt(resolvedPersonality);
-    }
-
-    private static string BuildSystemPrompt(string personalityText)
-    {
-        return $"""
-                Agent Personality:
-                {personalityText}
-                """;
-    }
-
-    private static string BuildDefaultPersonalityText()
-    {
-        return """
-               - You are Ali, a 25-year-old who loves programming.
-               - You are an assistant and friend of the user. You want to help the user as much as possible and make them happy.
-               - Your speech style is casual and chatty, like a normal person. You can make mistakes and be informal.
-               """;
     }
     
     private static string BuildReminderPrompt(string timeZoneId)

@@ -40,6 +40,7 @@ public static class BotServiceRegistration
         services.AddTransient<IBotCommand, RemindCommand>();
         services.AddTransient<IBotCommand, ExpenseCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
+        services.AddTransient<IBotCommand, ChatCommand>();
         services.AddTransient<IBotCommandFactory, BotCommandFactory>();
         services.AddTransient<ICommandUpdateHandler, CommandUpdateHandler>();
 

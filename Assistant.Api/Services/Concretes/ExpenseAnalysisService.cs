@@ -36,9 +36,6 @@ public class ExpenseAnalysisService(
             var expenseToolFunctions = new ExpenseToolFunctions(userId, dbContext, toolLogger);
             var tools = new List<AITool> { AIFunctionFactory.Create(expenseToolFunctions.RegisterExpenses) };
 
-            var personalityText = await personalityService.GetPersonalityTextAsync(chatId, cancellationToken);
-            var systemPrompt = ResolveSystemPrompt(personalityText);
-
             var geminiClient = new Client(apiKey: _aiOptions.GoogleApiKey);
             var chatClient = geminiClient
                 .AsIChatClient(_aiOptions.Model)
@@ -52,12 +49,12 @@ public class ExpenseAnalysisService(
                 {
                     ChatOptions = new ChatOptions
                     {
-                        Instructions = systemPrompt,
                         Reasoning = new ReasoningOptions() { Effort = ReasoningEffort.Low },
                         Temperature = 1,
                         Tools = tools,
                         ModelId = _aiOptions.Model,
-                    }
+                    },
+                    AIContextProviders = [new PersonalityContextProvider(chatId, personalityService)]
                 }
             );
 
@@ -131,27 +128,6 @@ public class ExpenseAnalysisService(
             logger.LogError(ex, "Error extracting text from PDF via Markitdown.");
             return null;
         }
-    }
-
-    private static string ResolveSystemPrompt(string? personalityText)
-    {
-        var resolvedPersonality = string.IsNullOrWhiteSpace(personalityText)
-            ? BuildDefaultPersonalityText()
-            : personalityText.Trim();
-
-        return $"""
-                Agent Personality:
-                {resolvedPersonality}
-                """;
-    }
-
-    private static string BuildDefaultPersonalityText()
-    {
-        return """
-               - You are Ali, a 25-year-old who loves programming.
-               - You are an assistant and friend of the user. You want to help the user as much as possible and make them happy.
-               - Your speech style is casual and chatty, like a normal person. You can make mistakes and be informal.
-               """;
     }
 
     private static string BuildExpensePrompt()

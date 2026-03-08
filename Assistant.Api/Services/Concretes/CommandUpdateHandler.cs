@@ -69,7 +69,7 @@ public class CommandUpdateHandler(
         if (string.IsNullOrWhiteSpace(text)) return string.Empty;
 
         var trimmed = text.Trim();
-        if (!trimmed.StartsWith('/')) return string.Empty;
+        if (!trimmed.StartsWith('/')) return "chat";
 
         var firstToken = trimmed.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries)[0];
         var commandPart = firstToken[1..];
