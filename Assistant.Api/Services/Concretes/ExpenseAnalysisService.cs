@@ -49,6 +49,7 @@ public class ExpenseAnalysisService(
                 {
                     ChatOptions = new ChatOptions
                     {
+                        Instructions = BuildExpensePrompt(),
                         Reasoning = new ReasoningOptions() { Effort = ReasoningEffort.Low },
                         Temperature = 1,
                         Tools = tools,
@@ -60,7 +61,6 @@ public class ExpenseAnalysisService(
 
             List<ChatMessage> thread =
             [
-                new(ChatRole.System, BuildExpensePrompt()),
                 new(ChatRole.User, $"Analyze this statement, create a single billing period expense summary, and register it:\n\n{pdfText}")
             ];
 

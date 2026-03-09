@@ -54,6 +54,7 @@ public class ReminderAgentService(
                 {
                     ChatOptions = new ChatOptions
                     {
+                        Instructions = BuildReminderPrompt(timeZoneInfo.Id),
                         Temperature = 1,
                         Tools = tools,
                         ModelId = "gemini-3.1-flash-lite-preview"
@@ -70,7 +71,6 @@ public class ReminderAgentService(
             
             List<ChatMessage> thread =
             [
-                new(ChatRole.System, BuildReminderPrompt(timeZoneInfo.Id)),
                 new(ChatRole.User, agentInput)  
             ];
 

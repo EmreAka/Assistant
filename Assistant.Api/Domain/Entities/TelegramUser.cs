@@ -11,4 +11,5 @@ public class TelegramUser
     public string LastName { get; set; } = string.Empty;
     public AssistantPersonality? AssistantPersonality { get; set; }
     public ICollection<Expense> Expenses { get; set; } = new List<Expense>();
+    public ICollection<UserMemory> Memories { get; set; } = new List<UserMemory>();
 }

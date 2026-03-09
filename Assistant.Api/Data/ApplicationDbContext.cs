@@ -9,6 +9,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TelegramUser> TelegramUsers { get; set; }
     public DbSet<AssistantPersonality> AssistantPersonalities { get; set; }
     public DbSet<Expense> Expenses { get; set; }
+    public DbSet<UserMemory> UserMemories { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
