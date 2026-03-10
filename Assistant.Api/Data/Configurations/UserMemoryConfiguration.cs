@@ -36,6 +36,16 @@ public class UserMemoryConfiguration : IEntityTypeConfiguration<UserMemory>
             .HasColumnName("importance")
             .IsRequired();
 
+        builder.Property(x => x.Embedding)
+            .HasColumnName("embedding")
+            .HasColumnType("vector(768)");
+
+        builder.Property(x => x.Status)
+            .HasColumnName("status")
+            .HasMaxLength(32)
+            .IsRequired()
+            .HasDefaultValue(UserMemoryStatuses.Active);
+
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
@@ -46,9 +56,25 @@ public class UserMemoryConfiguration : IEntityTypeConfiguration<UserMemory>
         builder.Property(x => x.ExpiresAt)
             .HasColumnName("expires_at");
 
+        builder.Property(x => x.ArchivedAt)
+            .HasColumnName("archived_at");
+
+        builder.Property(x => x.MergedIntoMemoryId)
+            .HasColumnName("merged_into_memory_id");
+
+        builder.Property(x => x.LastConsolidatedAt)
+            .HasColumnName("last_consolidated_at");
+
+        builder.HasIndex(x => new { x.TelegramUserId, x.Status });
+
         builder.HasOne(x => x.TelegramUser)
             .WithMany(x => x.Memories)
             .HasForeignKey(x => x.TelegramUserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(x => x.MergedIntoMemory)
+            .WithMany(x => x.MergedMemories)
+            .HasForeignKey(x => x.MergedIntoMemoryId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

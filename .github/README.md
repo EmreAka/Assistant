@@ -13,6 +13,9 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 - Credit card statement PDFs can now be analyzed and persisted as billing-period expense summaries.
 - Incoming Telegram updates are queued and processed in the background via Hangfire.
 - A Hangfire recurring job is configured to send end-of-workday reminders to registered users.
+- Long-term user memories now store Gemini embeddings in PostgreSQL via `pgvector`, enabling semantic recall instead of only recency-based retrieval.
+- AI-backed turns now combine personality context, semantically matched memories, and a rolling chat summary to keep longer conversations coherent.
+- A memory-maintenance pipeline has been added to archive stale memories and consolidate highly similar durable memories.
 
 ## Commands
 The bot currently supports the following commands:
@@ -46,6 +49,7 @@ Implementation notes:
 - Delivery failures are logged per chat; successful and failed counts are summarized at the end of each run.
 - The recurring schedule is registered at application startup in `UseHangfireRecurringJobs`.
 - `CommandUpdateJob` is also registered as a Hangfire background job and is used to process incoming Telegram updates asynchronously.
+- `MemoryMaintenanceJob` and `MemoryMaintenanceService` are now implemented for nightly semantic-memory cleanup, but the recurring `AddOrUpdate(...)` registration is currently commented out.
 
 ## Architecture Overview
 - `IBotCommand`
@@ -56,10 +60,20 @@ Implementation notes:
   - Parses incoming updates, extracts the command text from either message text or caption, resolves the handler from the factory, executes it, and logs errors.
 - `BotController`
   - Receives webhook updates, validates the Telegram secret token, checks allowed chat IDs, and enqueues accepted updates to Hangfire for background processing.
+- `AgentService`
+  - Builds AI-backed conversations with personality context, semantically relevant memories, and reduced chat history before calling the model.
 - `ExpenseCommand`
   - Returns the user's current expense total or handles statement PDF uploads for automated expense registration.
 - `ExpenseAnalysisService`
   - Sends uploaded PDFs to Markitdown for text extraction, invokes the AI agent with tool-calling, and persists a single billing-period expense summary.
+- `EmbeddingService`
+  - Generates Gemini document/query embeddings and normalizes vectors before persistence and search.
+- `MemoryService`
+  - Persists memory embeddings and status metadata, backfills missing embeddings, and performs cosine-distance semantic search for the current user input.
+- `AssistantChatReducer`
+  - Replaces older chat turns with a rolling assistant summary while preserving recent turns verbatim.
+- `MemoryMaintenanceService`
+  - Archives stale memories, skips time-bound or contradictory clusters, and asks Gemini to merge durable near-duplicate memories.
 
 ## How It Works (Request Flow)
 1. Telegram sends an update to `POST /bot/update`.
@@ -71,11 +85,14 @@ Implementation notes:
 7. `BotCommandFactory` resolves the matching command handler.
 8. The command executes and sends responses through `ITelegramBotClient`.
 
+For AI-backed flows, `AgentService` injects personality context, semantically relevant long-term memories, and reduced chat history before invoking the model.
+
 ## Quick Start
 ### Prerequisites
 - .NET 8 SDK
 - A Telegram bot token
 - A Google Gemini API key
+- A PostgreSQL database with `pgvector` support available
 - A Markitdown service endpoint for PDF-to-markdown conversion
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
@@ -92,7 +109,15 @@ Set the `Bot` and `AI` sections in `Assistant.Api/appsettings.Development.json`:
     "AllowedChatIds": []
   },
   "AI": {
-    "GoogleApiKey": "YOUR_GOOGLE_GEMINI_API_KEY"
+    "GoogleApiKey": "YOUR_GOOGLE_GEMINI_API_KEY",
+    "Model": "gemini-3.1-flash-lite-preview",
+    "EmbeddingModel": "gemini-embedding-2-preview",
+    "EmbeddingDimensions": 768,
+    "MemoryMaintenanceModel": "gemini-3.1-flash-lite-preview",
+    "MemoryArchiveAfterDaysLow": 30,
+    "MemoryArchiveAfterDaysMedium": 90,
+    "MemoryConsolidationCron": "0 3 * * *",
+    "DefaultTimeZoneId": "Europe/Istanbul"
   },
   "Markitdown": {
     "Endpoint": "YOUR_MARKITDOWN_ENDPOINT"
@@ -110,6 +135,8 @@ Also configure database connection strings in the same file:
   }
 }
 ```
+
+The semantic-memory migration enables the PostgreSQL `vector` extension and adds a `vector(768)` embedding column to `user_memories`, so the target PostgreSQL instance must have `pgvector` installed.
 
 ### Run
 ```bash

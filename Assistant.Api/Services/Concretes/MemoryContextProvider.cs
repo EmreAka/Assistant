@@ -5,6 +5,7 @@ namespace Assistant.Api.Services.Concretes;
 
 public class MemoryContextProvider(
     long chatId,
+    string userInput,
     IMemoryService memoryService
 ) : AIContextProvider
 {
@@ -14,7 +15,7 @@ public class MemoryContextProvider(
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var memories = await memoryService.GetActiveMemoriesAsync(chatId, MaxMemories, cancellationToken);
+        var memories = await memoryService.SearchRelevantMemoriesAsync(chatId, userInput, MaxMemories, cancellationToken);
         if (memories.Count == 0)
         {
             return new AIContext();

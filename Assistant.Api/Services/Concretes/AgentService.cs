@@ -75,10 +75,14 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new MemoryContextProvider(chatId, memoryService)
+                        new MemoryContextProvider(chatId, userInput, memoryService)
                     ],
 #pragma warning disable MEAI001
-                    ChatHistoryProvider = new InMemoryChatHistoryProvider(new() { ChatReducer = new SummarizingChatReducer(chatClient, 50, 20) })
+                    //ChatHistoryProvider = new InMemoryChatHistoryProvider(new() { ChatReducer = new SummarizingChatReducer(chatClient, 50, 20) })
+                    ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
+                    {
+                        ChatReducer = new AssistantChatReducer(chatClient, logger)
+                    })
 #pragma warning restore MEAI001
                 }
             );

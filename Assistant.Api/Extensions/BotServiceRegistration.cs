@@ -34,7 +34,9 @@ public static class BotServiceRegistration
 
         services.AddScoped<IReminderSchedulerService, ReminderSchedulerService>();
         services.AddScoped<IPersonalityService, PersonalityService>();
+        services.AddScoped<IEmbeddingService, EmbeddingService>();
         services.AddScoped<IMemoryService, MemoryService>();
+        services.AddScoped<IMemoryMaintenanceService, MemoryMaintenanceService>();
         services.AddScoped<IReminderAgentService, ReminderAgentService>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
         services.AddScoped<IAgentService, AgentService>();

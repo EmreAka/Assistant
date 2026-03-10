@@ -2,6 +2,7 @@ using Assistant.Api.Data;
 using Assistant.Api.Extensions;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
+using Pgvector.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,7 +10,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("PostgreSQL");
 builder.Services.AddDbContextPool<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector()));
 
 builder.Services.AddHangfireServices(builder.Configuration);
 
@@ -18,6 +19,11 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddBotServices(builder.Configuration);
+
+if (IsEntityFrameworkDesignTime())
+{
+    return;
+}
 
 var app = builder.Build();
 await app.UseDatabaseMigrationsAsync();
@@ -41,3 +47,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.Run();
+
+static bool IsEntityFrameworkDesignTime()
+{
+    return AppDomain.CurrentDomain.GetAssemblies()
+            .Any(assembly => string.Equals(assembly.GetName().Name, "Microsoft.EntityFrameworkCore.Design", StringComparison.Ordinal))
+        || Environment.GetCommandLineArgs()
+            .Any(argument => argument.Contains("ef.dll", StringComparison.OrdinalIgnoreCase));
+}
