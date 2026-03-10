@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Pgvector.EntityFrameworkCore;
 
 namespace Assistant.Api.Data;
 
@@ -18,7 +19,7 @@ public class ApplicationDbContextFactory : IDesignTimeDbContextFactory<Applicati
             ?? "Host=localhost;Port=5432;Database=assistant;Username=postgres;Password=postgres";
 
         var optionsBuilder = new DbContextOptionsBuilder<ApplicationDbContext>();
-        optionsBuilder.UseNpgsql(connectionString);
+        optionsBuilder.UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.UseVector());
 
         return new ApplicationDbContext(optionsBuilder.Options);
     }

@@ -2,11 +2,14 @@ using Assistant.Api.Data;
 using Assistant.Api.Domain.Entities;
 using Assistant.Api.Services.Abstracts;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
+using Pgvector.EntityFrameworkCore;
 
 namespace Assistant.Api.Services.Concretes;
 
 public class MemoryService(
     ApplicationDbContext dbContext,
+    IEmbeddingService embeddingService,
     ILogger<MemoryService> logger
 ) : IMemoryService
 {
@@ -22,11 +25,91 @@ public class MemoryService(
         return await dbContext.UserMemories
             .AsNoTracking()
             .Where(x => x.TelegramUser.ChatId == chatId)
+            .Where(x => x.Status == UserMemoryStatuses.Active)
             .Where(x => x.ExpiresAt == null || x.ExpiresAt > nowUtc)
             .OrderByDescending(x => x.Importance)
             .ThenByDescending(x => x.LastUsedAt ?? x.CreatedAt)
             .Take(take)
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<UserMemory>> SearchRelevantMemoriesAsync(
+        long chatId,
+        string query,
+        int take,
+        CancellationToken cancellationToken)
+    {
+        if (take <= 0)
+        {
+            return [];
+        }
+
+        var normalizedQuery = MemoryNormalization.NormalizeContent(query);
+        if (string.IsNullOrWhiteSpace(normalizedQuery))
+        {
+            return await GetActiveMemoriesAsync(chatId, take, cancellationToken);
+        }
+
+        try
+        {   
+            // Todo: This backfilling strategy is not optimal as it adds latency to the search. A better approach would be to backfill embeddings in the background, for example using a scheduled job or a message queue.
+            await BackfillEmbeddingsAsync(chatId, cancellationToken);
+
+            var queryEmbedding = await embeddingService.GenerateQueryEmbeddingAsync(normalizedQuery, cancellationToken);
+            if (queryEmbedding is null)
+            {
+                return await GetActiveMemoriesAsync(chatId, take, cancellationToken);
+            }
+
+            var nowUtc = DateTime.UtcNow;
+
+            var memories = await dbContext.UserMemories
+                .AsNoTracking()
+                .Where(x => x.TelegramUser.ChatId == chatId)
+                .Where(x => x.Status == UserMemoryStatuses.Active)
+                .Where(x => x.ExpiresAt == null || x.ExpiresAt > nowUtc)
+                .Where(x => x.Embedding != null)
+                .OrderBy(x => x.Embedding!.CosineDistance(queryEmbedding))
+                .ThenByDescending(x => x.Importance)
+                .ThenByDescending(x => x.LastUsedAt ?? x.CreatedAt)
+                .Take(take)
+                .ToListAsync(cancellationToken);
+
+            return memories.Count > 0
+                ? memories
+                : await GetActiveMemoriesAsync(chatId, take, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Semantic search failed for ChatId: {ChatId}. Falling back to ranked active memories.", chatId);
+            return await GetActiveMemoriesAsync(chatId, take, cancellationToken);
+        }
+    }
+
+    public async Task BackfillEmbeddingsAsync(long chatId, CancellationToken cancellationToken)
+    {
+        var memories = await dbContext.UserMemories
+            .Where(x => x.TelegramUser.ChatId == chatId)
+            .Where(x => x.Status == UserMemoryStatuses.Active)
+            .Where(x => x.Embedding == null)
+            .ToListAsync(cancellationToken);
+
+        if (memories.Count == 0)
+        {
+            return;
+        }
+
+        var changed = false;
+        foreach (var memory in memories)
+        {
+            memory.Embedding = await embeddingService.GenerateDocumentEmbeddingAsync(memory.Content, memory.Category, cancellationToken);
+            changed |= memory.Embedding is not null;
+        }
+
+        if (changed)
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
     }
 
     public async Task<bool> SaveMemoryAsync(
@@ -36,7 +119,7 @@ public class MemoryService(
         int importance,
         CancellationToken cancellationToken)
     {
-        var normalizedContent = NormalizeContent(content);
+        var normalizedContent = MemoryNormalization.NormalizeContent(content);
         if (string.IsNullOrWhiteSpace(normalizedContent))
         {
             return false;
@@ -54,8 +137,9 @@ public class MemoryService(
             return false;
         }
 
-        var normalizedCategory = NormalizeCategory(category);
+        var normalizedCategory = MemoryNormalization.NormalizeCategory(category);
         var normalizedImportance = Math.Clamp(importance, 1, 10);
+        var nowUtc = DateTime.UtcNow;
 
         var existingMemory = await dbContext.UserMemories
             .FirstOrDefaultAsync(
@@ -67,10 +151,34 @@ public class MemoryService(
         if (existingMemory is not null)
         {
             existingMemory.Importance = Math.Max(existingMemory.Importance, normalizedImportance);
-            existingMemory.LastUsedAt = DateTime.UtcNow;
+            existingMemory.LastUsedAt = nowUtc;
+            existingMemory.Status = UserMemoryStatuses.Active;
+            existingMemory.ArchivedAt = null;
+            existingMemory.MergedIntoMemoryId = null;
+
+            if (existingMemory.Embedding is null)
+            {
+                existingMemory.Embedding = await embeddingService.GenerateDocumentEmbeddingAsync(
+                    normalizedContent,
+                    normalizedCategory,
+                    cancellationToken);
+            }
 
             await dbContext.SaveChangesAsync(cancellationToken);
             return false;
+        }
+
+        Vector? embedding = null;
+        try
+        {
+            embedding = await embeddingService.GenerateDocumentEmbeddingAsync(
+                normalizedContent,
+                normalizedCategory,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception, "Memory embedding generation failed for ChatId: {ChatId}. Saving memory without embedding.", chatId);
         }
 
         dbContext.UserMemories.Add(new UserMemory
@@ -79,8 +187,10 @@ public class MemoryService(
             Category = normalizedCategory,
             Content = normalizedContent,
             Importance = normalizedImportance,
-            CreatedAt = DateTime.UtcNow,
-            LastUsedAt = DateTime.UtcNow
+            Embedding = embedding,
+            Status = UserMemoryStatuses.Active,
+            CreatedAt = nowUtc,
+            LastUsedAt = nowUtc
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -114,20 +224,5 @@ public class MemoryService(
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
-    }
-
-    private static string NormalizeContent(string content)
-    {
-        return string.Join(
-            " ",
-            content
-                .Trim()
-                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-    }
-
-    private static string NormalizeCategory(string category)
-    {
-        var trimmed = category.Trim().ToLowerInvariant();
-        return string.IsNullOrWhiteSpace(trimmed) ? "fact" : trimmed;
     }
 }

@@ -5,6 +5,8 @@ namespace Assistant.Api.Services.Abstracts;
 public interface IMemoryService
 {
     Task<IReadOnlyList<UserMemory>> GetActiveMemoriesAsync(long chatId, int take, CancellationToken cancellationToken);
+    Task<IReadOnlyList<UserMemory>> SearchRelevantMemoriesAsync(long chatId, string query, int take, CancellationToken cancellationToken);
+    Task BackfillEmbeddingsAsync(long chatId, CancellationToken cancellationToken);
     Task<bool> SaveMemoryAsync(long chatId, string content, string category, int importance, CancellationToken cancellationToken);
     Task TouchMemoriesAsync(IEnumerable<int> memoryIds, CancellationToken cancellationToken);
 }
