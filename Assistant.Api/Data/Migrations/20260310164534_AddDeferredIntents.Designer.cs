@@ -3,6 +3,7 @@ using System;
 using Assistant.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Assistant.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260310164534_AddDeferredIntents")]
+    partial class AddDeferredIntents
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -54,67 +57,46 @@ namespace Assistant.Api.Data.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
+                        .HasColumnType("integer");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<long>("ChatId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("chat_id");
+                        .HasColumnType("bigint");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("ExecutedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("executed_at_utc");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ExecutionResult")
-                        .HasColumnType("text")
-                        .HasColumnName("execution_result");
+                        .HasColumnType("text");
 
                     b.Property<string>("HangfireJobId")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("hangfire_job_id");
+                        .HasColumnType("text");
 
                     b.Property<Guid>("IntentId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("intent_id");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("OriginalInstruction")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("original_instruction");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("ScheduledAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("scheduled_at_utc");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)")
-                        .HasColumnName("status");
+                        .HasColumnType("text");
 
                     b.Property<string>("TimeZoneId")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasDefaultValue("UTC")
-                        .HasColumnName("time_zone_id");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IntentId")
-                        .IsUnique();
-
-                    b.HasIndex("ChatId", "Status");
-
-                    b.ToTable("deferred_intents", (string)null);
+                    b.ToTable("DeferredIntents");
                 });
 
             modelBuilder.Entity("Assistant.Api.Domain.Entities.Expense", b =>

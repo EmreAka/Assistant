@@ -10,6 +10,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AssistantPersonality> AssistantPersonalities { get; set; }
     public DbSet<Expense> Expenses { get; set; }
     public DbSet<UserMemory> UserMemories { get; set; }
+    public DbSet<DeferredIntent> DeferredIntents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

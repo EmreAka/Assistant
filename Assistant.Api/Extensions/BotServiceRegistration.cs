@@ -37,6 +37,7 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryService, MemoryService>();
         services.AddScoped<IReminderAgentService, ReminderAgentService>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
+        services.AddScoped<IAgentService, AgentService>();
 
         services.AddTransient<IBotCommand, RemindCommand>();
         services.AddTransient<IBotCommand, ExpenseCommand>();
