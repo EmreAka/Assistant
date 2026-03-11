@@ -68,7 +68,7 @@ public class AgentService(
                     ChatOptions = new ChatOptions
                     {
                         Instructions = instructions,
-                        Temperature = _aiOptions.AgentTemperature,
+                        Temperature = 1,
                         ModelId = "grok-4-1-fast-reasoning",
                         Tools = tools
                     },
@@ -81,11 +81,7 @@ public class AgentService(
 #pragma warning disable MEAI001
                     ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
                     {
-                        ChatReducer = new AssistantChatReducer(
-                            chatClient,
-                            logger,
-                            recentTokenBudget: _aiOptions.AgentHistoryRecentTokenBudget,
-                            summarizeThresholdTokenBudget: _aiOptions.AgentHistorySummarizeTriggerTokenBudget)
+                        ChatReducer = new SummarizingChatReducer(chatClient, 100, 20)
                     })
 #pragma warning restore MEAI001
                 }
@@ -99,6 +95,16 @@ public class AgentService(
             }
 
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
+            var usage = response.Usage;
+
+            logger.LogInformation(
+                "Tokens in={Input} out={Output} total={Total} cached={Cached} reasoning={Reasoning}",
+                usage?.InputTokenCount,
+                usage?.OutputTokenCount,
+                usage?.TotalTokenCount,
+                usage?.CachedInputTokenCount,
+                usage?.ReasoningTokenCount);
+
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
         catch (Exception ex)
