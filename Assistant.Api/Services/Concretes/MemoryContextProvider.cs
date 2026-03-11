@@ -8,13 +8,11 @@ public class MemoryContextProvider(
     IMemoryService memoryService
 ) : AIContextProvider
 {
-    private const int MaxMemories = 6;
-
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var memories = await memoryService.GetActiveMemoriesAsync(chatId, MaxMemories, cancellationToken);
+        var memories = await memoryService.GetActiveMemoriesAsync(chatId, cancellationToken);
         if (memories.Count == 0)
         {
             return new AIContext();

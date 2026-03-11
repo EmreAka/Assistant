@@ -10,13 +10,8 @@ public class MemoryService(
     ILogger<MemoryService> logger
 ) : IMemoryService
 {
-    public async Task<IReadOnlyList<UserMemory>> GetActiveMemoriesAsync(long chatId, int take, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<UserMemory>> GetActiveMemoriesAsync(long chatId, CancellationToken cancellationToken)
     {
-        if (take <= 0)
-        {
-            return [];
-        }
-
         var nowUtc = DateTime.UtcNow;
 
         return await dbContext.UserMemories
@@ -25,7 +20,6 @@ public class MemoryService(
             .Where(x => x.ExpiresAt == null || x.ExpiresAt > nowUtc)
             .OrderByDescending(x => x.Importance)
             .ThenByDescending(x => x.LastUsedAt ?? x.CreatedAt)
-            .Take(take)
             .ToListAsync(cancellationToken);
     }
 

@@ -68,17 +68,25 @@ public class AgentService(
                     ChatOptions = new ChatOptions
                     {
                         Instructions = instructions,
-                        Temperature = 1,
+                        Temperature = _aiOptions.AgentTemperature,
                         ModelId = "grok-4-1-fast-reasoning",
                         Tools = tools
                     },
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new MemoryContextProvider(chatId, memoryService)
+                        new MemoryContextProvider(chatId, memoryService),
+                        new PendingTaskContextProvider(chatId, dbContext)
                     ],
 #pragma warning disable MEAI001
-                    ChatHistoryProvider = new InMemoryChatHistoryProvider(new() { ChatReducer = new SummarizingChatReducer(chatClient, 50, 20) })
+                    ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
+                    {
+                        ChatReducer = new AssistantChatReducer(
+                            chatClient,
+                            logger,
+                            recentTokenBudget: _aiOptions.AgentHistoryRecentTokenBudget,
+                            summarizeThresholdTokenBudget: _aiOptions.AgentHistorySummarizeTriggerTokenBudget)
+                    })
 #pragma warning restore MEAI001
                 }
             );
@@ -107,6 +115,13 @@ public class AgentService(
                You should act like a person behind keyboard. Don't say that you are an AI model. Don't say that you are an assistant.
                Keep in mind you are chatting on an app named Telegram.
 
+               Conversation continuity rules:
+               - Prefer recent chat history, pending tasks, and remembered context before asking the user to repeat themselves.
+               - Track unresolved requests, confirmed decisions, and promised follow-ups across turns.
+               - If the user refers to "it", "that", "same as before", or similar, resolve it from recent context first.
+               - Do not reopen settled decisions unless the user changes them.
+               - If context is still ambiguous, ask one short clarifying question.
+
                Memory tool rules:
                - Save memory only when the user shares a stable preference, enduring profile fact, or long-term goal likely to matter later.
                - Do not save one-off tasks, temporary moods, passwords.
@@ -119,6 +134,7 @@ public class AgentService(
                Task scheduling rules:
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
+               - Check pending tasks and open loops before scheduling a duplicate task.
                """;
     }
 }
