@@ -51,8 +51,7 @@ public class MemoryService(
         }
 
         try
-        {   
-            // Todo: This backfilling strategy is not optimal as it adds latency to the search. A better approach would be to backfill embeddings in the background, for example using a scheduled job or a message queue.
+        {
             await BackfillEmbeddingsAsync(chatId, cancellationToken);
 
             var queryEmbedding = await embeddingService.GenerateQueryEmbeddingAsync(normalizedQuery, cancellationToken);

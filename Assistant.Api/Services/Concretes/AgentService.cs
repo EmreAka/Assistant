@@ -75,13 +75,13 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new MemoryContextProvider(chatId, userInput, memoryService)
+                        new MemoryContextProvider(chatId, userInput, memoryService),
+                        new PendingTaskContextProvider(chatId, dbContext)
                     ],
 #pragma warning disable MEAI001
-                    //ChatHistoryProvider = new InMemoryChatHistoryProvider(new() { ChatReducer = new SummarizingChatReducer(chatClient, 50, 20) })
                     ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
                     {
-                        ChatReducer = new AssistantChatReducer(chatClient, logger)
+                        ChatReducer = new SummarizingChatReducer(chatClient, 100, 20)
                     })
 #pragma warning restore MEAI001
                 }
@@ -95,6 +95,16 @@ public class AgentService(
             }
 
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
+            var usage = response.Usage;
+
+            logger.LogInformation(
+                "Tokens in={Input} out={Output} total={Total} cached={Cached} reasoning={Reasoning}",
+                usage?.InputTokenCount,
+                usage?.OutputTokenCount,
+                usage?.TotalTokenCount,
+                usage?.CachedInputTokenCount,
+                usage?.ReasoningTokenCount);
+
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
         catch (Exception ex)
@@ -111,18 +121,28 @@ public class AgentService(
                You should act like a person behind keyboard. Don't say that you are an AI model. Don't say that you are an assistant.
                Keep in mind you are chatting on an app named Telegram.
 
+               Conversation continuity rules:
+               - Prefer recent chat history, pending tasks, and remembered context before asking the user to repeat themselves.
+               - Track unresolved requests, confirmed decisions, and promised follow-ups across turns.
+               - If the user refers to "it", "that", "same as before", or similar, resolve it from recent context first.
+               - Do not reopen settled decisions unless the user changes them.
+               - If context is still ambiguous, ask one short clarifying question.
+
                Memory tool rules:
-               - Save memory only when the user shares a stable preference, enduring profile fact, or long-term goal likely to matter later.
-               - Do not save one-off tasks, temporary moods, passwords.
-               - Rewrite saved memory as a concise standalone fact.
+               - Save memory whenever the user shares a preference, personal detail, recurring behavior, ongoing project, relationship, constraint, or goal that could help in a later conversation.
+               - When unsure, lean toward saving the memory if it seems potentially useful again.
+               - Do not require the memory to be permanent; medium-term context is also worth saving.
+               - Do not save passwords, secret tokens, one-time codes, or details that are obviously expired immediately after this chat.
+               - Rewrite saved memory as a concise standalone fact, and generalize overly specific details into a broader useful summary when possible.
                - Prefer categories: preference, profile, goal, fact.
-               - Use the memory tool at most once per turn unless the user clearly shared multiple distinct durable memories.
+               - Use the memory tool up to three times per turn when the user shares multiple distinct useful memories.
                - Use remembered information only when it is relevant to the current request.
                - Do not mention the memory system unless the user explicitly asks.
                
                Task scheduling rules:
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
+               - Check pending tasks and open loops before scheduling a duplicate task.
                """;
     }
 }

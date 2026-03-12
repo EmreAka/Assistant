@@ -9,11 +9,11 @@ public class MemoryToolFunctions(
     ILogger<MemoryToolFunctions> logger
 )
 {
-    [Description("Saves a durable user memory when the user shares a stable preference, profile fact, or long-term goal that will likely matter later.")]
+    [Description("Saves a useful user memory when the user shares a preference, profile detail, recurring behavior, ongoing project, relationship, constraint, or goal that may help in future conversations.")]
     public async Task<string> SaveMemory(
-        [Description("The memory content rewritten as a concise durable fact in one sentence.")] string content,
-        [Description("The memory category. Use one of: preference, profile, goal, fact.")] string category,
-        [Description("Memory importance from 1 to 10. Use higher values for enduring preferences or high-value facts.")] int importance)
+        [Description("The memory content rewritten as a concise standalone fact or short summary. Generalize overly specific one-off details into a broader useful memory when possible.")] string content,
+        [Description("The memory category. Prefer one of: preference, profile, goal, fact.")] string category,
+        [Description("Memory importance from 1 to 10. When unsure but the memory seems useful later, prefer saving it with a medium-high score like 6 to 8 instead of skipping it.")] int importance)
     {
         var saved = await memoryService.SaveMemoryAsync(chatId, content, category, importance, CancellationToken.None);
 

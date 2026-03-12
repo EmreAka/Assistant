@@ -9,7 +9,7 @@ public class MemoryContextProvider(
     IMemoryService memoryService
 ) : AIContextProvider
 {
-    private const int MaxMemories = 6;
+    private const int MaxMemories = 15;
 
     protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
