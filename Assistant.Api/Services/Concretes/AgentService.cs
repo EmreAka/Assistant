@@ -129,11 +129,13 @@ public class AgentService(
                - If context is still ambiguous, ask one short clarifying question.
 
                Memory tool rules:
-               - Save memory only when the user shares a stable preference, enduring profile fact, or long-term goal likely to matter later.
-               - Do not save one-off tasks, temporary moods, passwords.
-               - Rewrite saved memory as a concise standalone fact.
+               - Save memory whenever the user shares a preference, personal detail, recurring behavior, ongoing project, relationship, constraint, or goal that could help in a later conversation.
+               - When unsure, lean toward saving the memory if it seems potentially useful again.
+               - Do not require the memory to be permanent; medium-term context is also worth saving.
+               - Do not save passwords, secret tokens, one-time codes, or details that are obviously expired immediately after this chat.
+               - Rewrite saved memory as a concise standalone fact, and generalize overly specific details into a broader useful summary when possible.
                - Prefer categories: preference, profile, goal, fact.
-               - Use the memory tool at most once per turn unless the user clearly shared multiple distinct durable memories.
+               - Use the memory tool up to three times per turn when the user shares multiple distinct useful memories.
                - Use remembered information only when it is relevant to the current request.
                - Do not mention the memory system unless the user explicitly asks.
                

@@ -9,6 +9,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
+#pragma warning disable CS8981
+
 namespace Assistant.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
@@ -157,3 +159,5 @@ namespace Assistant.Api.Data.Migrations
         }
     }
 }
+
+#pragma warning restore CS8981

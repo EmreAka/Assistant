@@ -73,7 +73,7 @@ Implementation notes:
 
 ## Quick Start
 ### Prerequisites
-- .NET 8 SDK
+- .NET 10 SDK
 - A Telegram bot token
 - A Google Gemini API key
 - A Markitdown service endpoint for PDF-to-markdown conversion
