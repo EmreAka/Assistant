@@ -56,7 +56,7 @@ public class AgentService(
             );
 
             var chatClient = openAIChatClient
-                .GetChatClient("grok-4-1-fast-reasoning")
+                .GetChatClient("grok-4.20-beta-0309-non-reasoning")
                 .AsIChatClient();
 
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
@@ -69,7 +69,7 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        ModelId = "grok-4-1-fast-reasoning",
+                        ModelId = "grok-4.20-beta-0309-non-reasoning",
                         Tools = tools
                     },
                     AIContextProviders =
@@ -96,14 +96,19 @@ public class AgentService(
 
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
             var usage = response.Usage;
+            var requestCostUsd = CalculateRequestCostUsd(
+                usage?.InputTokenCount,
+                usage?.CachedInputTokenCount,
+                usage?.OutputTokenCount);
 
             logger.LogInformation(
-                "Tokens in={Input} out={Output} total={Total} cached={Cached} reasoning={Reasoning}",
+                "Tokens in={Input} out={Output} total={Total} cached={Cached} reasoning={Reasoning} costUsd={CostUsd}",
                 usage?.InputTokenCount,
                 usage?.OutputTokenCount,
                 usage?.TotalTokenCount,
                 usage?.CachedInputTokenCount,
-                usage?.ReasoningTokenCount);
+                usage?.ReasoningTokenCount,
+                requestCostUsd);
 
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
@@ -144,5 +149,27 @@ public class AgentService(
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
                - Check pending tasks and open loops before scheduling a duplicate task.
                """;
+    }
+
+    private static decimal CalculateRequestCostUsd(
+        long? inputTokenCount,
+        long? cachedInputTokenCount,
+        long? outputTokenCount)
+    {
+        const decimal inputPricePerMillion = 2.00m;
+        const decimal cachedInputPricePerMillion = 0.20m;
+        const decimal outputPricePerMillion = 6.00m;
+        const decimal tokensPerMillion = 1_000_000m;
+
+        var totalInputTokens = Math.Max(0, inputTokenCount ?? 0);
+        var cachedInputTokens = Math.Min(Math.Max(0, cachedInputTokenCount ?? 0), totalInputTokens);
+        var uncachedInputTokens = totalInputTokens - cachedInputTokens;
+        var totalOutputTokens = Math.Max(0, outputTokenCount ?? 0);
+
+        var inputCost = uncachedInputTokens * inputPricePerMillion / tokensPerMillion;
+        var cachedInputCost = cachedInputTokens * cachedInputPricePerMillion / tokensPerMillion;
+        var outputCost = totalOutputTokens * outputPricePerMillion / tokensPerMillion;
+
+        return decimal.Round(inputCost + cachedInputCost + outputCost, 8, MidpointRounding.AwayFromZero);
     }
 }
