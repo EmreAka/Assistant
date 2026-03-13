@@ -56,7 +56,7 @@ public class AgentService(
             );
 
             var chatClient = openAIChatClient
-                .GetChatClient("grok-4.20-beta-0309-non-reasoning")
+                .GetChatClient("grok-4.20-beta-0309-reasoning")
                 .AsIChatClient();
 
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
@@ -69,7 +69,7 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        ModelId = "grok-4.20-beta-0309-non-reasoning",
+                        ModelId = "grok-4.20-beta-0309-reasoning",
                         Tools = tools
                     },
                     AIContextProviders =
