@@ -32,14 +32,11 @@ public static class BotServiceRegistration
             new TelegramBotClient(
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
 
-        services.AddScoped<IReminderSchedulerService, ReminderSchedulerService>();
         services.AddScoped<IPersonalityService, PersonalityService>();
         services.AddScoped<IMemoryService, MemoryService>();
-        services.AddScoped<IReminderAgentService, ReminderAgentService>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
         services.AddScoped<IAgentService, AgentService>();
 
-        services.AddTransient<IBotCommand, RemindCommand>();
         services.AddTransient<IBotCommand, ExpenseCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommand, ChatCommand>();
