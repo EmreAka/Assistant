@@ -42,9 +42,6 @@
       <Folder Include="Data/Configurations/" />
       <Folder Include="Data/Migrations/" />
       <Folder Include="Domain/Configurations/" />
-      <Folder Include="Domain/Dtos/" />
-      <Folder Include="Domain/Entities/" />
-      <Folder Include="Domain/Events/" />
       <Folder Include="Extensions/" />
       <Folder Include="Services/" />
       <Folder Include="Services/Abstracts/" />

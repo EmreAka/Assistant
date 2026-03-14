@@ -1,4 +1,6 @@
-namespace Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.UserManagement.Models;
+
+namespace Assistant.Api.Features.Expense.Models;
 
 public class Expense
 {

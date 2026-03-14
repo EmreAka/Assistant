@@ -2,7 +2,7 @@ using System.ComponentModel;
 using Assistant.Api.Domain.Configurations;
 using Microsoft.Extensions.Options;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Chat.Services;
 
 public class TimeToolFunctions(
     IOptions<AiOptions> aiOptions

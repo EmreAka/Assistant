@@ -1,4 +1,4 @@
-namespace Assistant.Api.Domain.Entities;
+namespace Assistant.Api.Features.UserManagement.Models;
 
 public class AssistantPersonality
 {

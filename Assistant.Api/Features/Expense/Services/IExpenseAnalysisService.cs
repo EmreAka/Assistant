@@ -1,11 +1,11 @@
-using Assistant.Api.Domain.Entities;
+using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
-namespace Assistant.Api.Services.Abstracts;
+namespace Assistant.Api.Features.Expense.Services;
 
 public record ExpenseAnalysisResponse(
     bool IsSuccess,
     string UserMessage,
-    List<Expense>? Expenses = null
+    List<ExpenseModel>? Expenses = null
 );
 
 public interface IExpenseAnalysisService

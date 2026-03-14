@@ -1,4 +1,4 @@
-namespace Assistant.Api.Domain.Entities;
+namespace Assistant.Api.Features.Chat.Models;
 
 public class DeferredIntent
 {

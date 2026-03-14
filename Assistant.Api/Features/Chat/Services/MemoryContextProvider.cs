@@ -1,7 +1,7 @@
-using Assistant.Api.Services.Abstracts;
+using Assistant.Api.Features.UserManagement.Services;
 using Microsoft.Agents.AI;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Chat.Services;
 
 public class MemoryContextProvider(
     long chatId,

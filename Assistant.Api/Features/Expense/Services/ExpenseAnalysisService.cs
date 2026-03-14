@@ -1,15 +1,17 @@
 using System.ComponentModel;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.Chat.Services;
+using Assistant.Api.Features.Expense.Models;
+using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Extensions;
-using Assistant.Api.Services.Abstracts;
 using Google.GenAI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Expense.Services;
 
 public class ExpenseAnalysisService(
     IPersonalityService personalityService,
@@ -151,7 +153,7 @@ public sealed record MarkitdownConvertResponse(string? Filename, string? Markdow
 
 public class ExpenseToolFunctions(int userId, ApplicationDbContext dbContext, ILogger logger)
 {
-    public List<Expense> CapturedExpenses { get; } = [];
+    public List<ExpenseModel> CapturedExpenses { get; } = [];
 
     [Description("Registers a single billing period expense summary into the system.")]
     public async Task RegisterExpenses(
@@ -159,7 +161,7 @@ public class ExpenseToolFunctions(int userId, ApplicationDbContext dbContext, IL
     {
         logger.LogInformation("Capturing billing period expense summary for user {UserId}", userId);
 
-        var expenseEntity = new Expense
+        var expenseEntity = new ExpenseModel
         {
             TelegramUserId = userId,
             Amount = expense.Amount,

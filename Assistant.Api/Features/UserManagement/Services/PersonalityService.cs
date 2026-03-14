@@ -1,8 +1,7 @@
 using Assistant.Api.Data;
-using Assistant.Api.Services.Abstracts;
 using Microsoft.EntityFrameworkCore;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.UserManagement.Services;
 
 public class PersonalityService(
     ApplicationDbContext dbContext

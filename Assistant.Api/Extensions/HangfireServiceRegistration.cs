@@ -1,3 +1,4 @@
+using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Services.Concretes;
 using Hangfire;
 using Hangfire.PostgreSql;

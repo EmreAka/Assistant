@@ -1,6 +1,6 @@
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.UserManagement.Models;
 
-namespace Assistant.Api.Services.Abstracts;
+namespace Assistant.Api.Features.UserManagement.Services;
 
 public interface IMemoryService
 {

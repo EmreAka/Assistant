@@ -3,7 +3,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Telegram.Bot.Types;
 
-namespace Assistant.Api.Services.Abstracts;
+namespace Assistant.Api.Features.Chat.Services;
 
 public interface IAgentService
 {

@@ -1,4 +1,10 @@
 using Assistant.Api.Domain.Configurations;
+using Assistant.Api.Features.Chat.Commands;
+using Assistant.Api.Features.Chat.Services;
+using Assistant.Api.Features.Expense.Commands;
+using Assistant.Api.Features.Expense.Services;
+using Assistant.Api.Features.UserManagement.Commands;
+using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
 using Assistant.Api.Services.Concretes;
 using Microsoft.Extensions.Options;

@@ -1,4 +1,6 @@
-namespace Assistant.Api.Domain.Entities;
+using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
+
+namespace Assistant.Api.Features.UserManagement.Models;
 
 public class TelegramUser
 {
@@ -10,6 +12,6 @@ public class TelegramUser
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public AssistantPersonality? AssistantPersonality { get; set; }
-    public ICollection<Expense> Expenses { get; set; } = new List<Expense>();
+    public ICollection<ExpenseModel> Expenses { get; set; } = new List<ExpenseModel>();
     public ICollection<UserMemory> Memories { get; set; } = new List<UserMemory>();
 }

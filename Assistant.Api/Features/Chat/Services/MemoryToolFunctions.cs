@@ -1,7 +1,7 @@
 using System.ComponentModel;
-using Assistant.Api.Services.Abstracts;
+using Assistant.Api.Features.UserManagement.Services;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Chat.Services;
 
 public class MemoryToolFunctions(
     long chatId,

@@ -1,9 +1,8 @@
 using Assistant.Api.Data;
-using Assistant.Api.Domain.Entities;
-using Assistant.Api.Services.Abstracts;
+using Assistant.Api.Features.UserManagement.Models;
 using Microsoft.EntityFrameworkCore;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.UserManagement.Services;
 
 public class MemoryService(
     ApplicationDbContext dbContext,

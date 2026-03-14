@@ -1,11 +1,11 @@
 using Assistant.Api.Data;
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.UserManagement.Models;
 using Assistant.Api.Services.Abstracts;
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.UserManagement.Commands;
 
 public class StartCommand(
     ApplicationDbContext dbContext

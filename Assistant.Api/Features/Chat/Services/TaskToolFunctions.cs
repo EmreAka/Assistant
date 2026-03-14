@@ -2,11 +2,11 @@ using System.ComponentModel;
 using System.Globalization;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.Chat.Models;
 using Hangfire;
 using Microsoft.Extensions.Options;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Chat.Services;
 
 public class TaskToolFunctions(
     long chatId,

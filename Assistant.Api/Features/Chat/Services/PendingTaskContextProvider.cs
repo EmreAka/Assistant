@@ -1,9 +1,9 @@
 using Assistant.Api.Data;
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.Chat.Models;
 using Microsoft.Agents.AI;
 using Microsoft.EntityFrameworkCore;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Chat.Services;
 
 public class PendingTaskContextProvider(
     long chatId,

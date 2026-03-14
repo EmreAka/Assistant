@@ -25,7 +25,7 @@ namespace Assistant.Api.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.AssistantPersonality", b =>
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.AssistantPersonality", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -53,7 +53,7 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("assistant_personalities", (string)null);
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.DeferredIntent", b =>
+            modelBuilder.Entity("Assistant.Api.Features.Chat.Models.DeferredIntent", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -120,7 +120,7 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("deferred_intents", (string)null);
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.Expense", b =>
+            modelBuilder.Entity("Assistant.Api.Features.Expense.Models.Expense", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -246,7 +246,7 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("reminders", (string)null);
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.TelegramUser", b =>
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.TelegramUser", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -296,7 +296,7 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("telegram_users", (string)null);
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.UserMemory", b =>
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.UserMemory", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -343,20 +343,20 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("user_memories", (string)null);
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.AssistantPersonality", b =>
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.AssistantPersonality", b =>
                 {
-                    b.HasOne("Assistant.Api.Domain.Entities.TelegramUser", "TelegramUser")
+                    b.HasOne("Assistant.Api.Features.UserManagement.Models.TelegramUser", "TelegramUser")
                         .WithOne("AssistantPersonality")
-                        .HasForeignKey("Assistant.Api.Domain.Entities.AssistantPersonality", "TelegramUserId")
+                        .HasForeignKey("Assistant.Api.Features.UserManagement.Models.AssistantPersonality", "TelegramUserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("TelegramUser");
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.Expense", b =>
+            modelBuilder.Entity("Assistant.Api.Features.Expense.Models.Expense", b =>
                 {
-                    b.HasOne("Assistant.Api.Domain.Entities.TelegramUser", "TelegramUser")
+                    b.HasOne("Assistant.Api.Features.UserManagement.Models.TelegramUser", "TelegramUser")
                         .WithMany("Expenses")
                         .HasForeignKey("TelegramUserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -365,9 +365,9 @@ namespace Assistant.Api.Data.Migrations
                     b.Navigation("TelegramUser");
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.UserMemory", b =>
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.UserMemory", b =>
                 {
-                    b.HasOne("Assistant.Api.Domain.Entities.TelegramUser", "TelegramUser")
+                    b.HasOne("Assistant.Api.Features.UserManagement.Models.TelegramUser", "TelegramUser")
                         .WithMany("Memories")
                         .HasForeignKey("TelegramUserId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -376,7 +376,7 @@ namespace Assistant.Api.Data.Migrations
                     b.Navigation("TelegramUser");
                 });
 
-            modelBuilder.Entity("Assistant.Api.Domain.Entities.TelegramUser", b =>
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.TelegramUser", b =>
                 {
                     b.Navigation("AssistantPersonality");
 

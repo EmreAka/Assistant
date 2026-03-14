@@ -1,4 +1,4 @@
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.Chat.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 

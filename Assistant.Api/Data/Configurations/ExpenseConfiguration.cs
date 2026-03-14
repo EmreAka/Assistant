@@ -1,4 +1,4 @@
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.Expense.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 

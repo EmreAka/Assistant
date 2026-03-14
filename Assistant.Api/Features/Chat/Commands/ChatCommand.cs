@@ -1,10 +1,11 @@
+using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Services.Abstracts;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Chat.Commands;
 
 public class ChatCommand(
     IAgentService agentService,

@@ -1,4 +1,4 @@
-namespace Assistant.Api.Services.Abstracts;
+namespace Assistant.Api.Features.UserManagement.Services;
 
 public interface IPersonalityService
 {

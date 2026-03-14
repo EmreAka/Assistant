@@ -1,4 +1,6 @@
-using Assistant.Api.Domain.Entities;
+using Assistant.Api.Features.Chat.Models;
+using Assistant.Api.Features.Expense.Models;
+using Assistant.Api.Features.UserManagement.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace Assistant.Api.Data;

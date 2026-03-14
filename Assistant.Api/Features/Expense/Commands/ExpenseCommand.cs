@@ -1,11 +1,12 @@
 using Assistant.Api.Data;
+using Assistant.Api.Features.Expense.Services;
 using Assistant.Api.Services.Abstracts;
 using Microsoft.EntityFrameworkCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
-namespace Assistant.Api.Services.Concretes;
+namespace Assistant.Api.Features.Expense.Commands;
 
 public class ExpenseCommand(
     IExpenseAnalysisService expenseAnalysisService,
