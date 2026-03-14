@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Services.Abstracts;
+using Google.GenAI;
 using Hangfire;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -50,14 +51,12 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
 
-            OpenAIClient openAIChatClient = new(
-                new ApiKeyCredential(_aiOptions.GrokApiKey),
-                new OpenAIClientOptions() { Endpoint = new Uri(_aiOptions.GrokApiBaseUrl) }
-            );
-
-            var chatClient = openAIChatClient
-                .GetChatClient("grok-4.20-beta-0309-reasoning")
-                .AsIChatClient();
+            var geminiClient = new Client(apiKey: _aiOptions.GoogleApiKey);
+            var chatClient = geminiClient
+                .AsIChatClient(_aiOptions.Model)
+                .AsBuilder()
+                .UseFunctionInvocation()
+                .Build();
 
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
 
@@ -69,7 +68,7 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        ModelId = "grok-4.20-beta-0309-reasoning",
+                        ModelId = _aiOptions.Model,
                         Tools = tools
                     },
                     AIContextProviders =

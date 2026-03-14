@@ -12,15 +12,15 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Assistant.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20260308134105_UpdateExpenseTable")]
-    partial class UpdateExpenseTable
+    [Migration("20260314103141_Initia")]
+    partial class Initia
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "8.0.16")
+                .HasAnnotation("ProductVersion", "10.0.4")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -51,6 +51,73 @@ namespace Assistant.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("assistant_personalities", (string)null);
+                });
+
+            modelBuilder.Entity("Assistant.Api.Domain.Entities.DeferredIntent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<long>("ChatId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("chat_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("ExecutedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("executed_at_utc");
+
+                    b.Property<string>("ExecutionResult")
+                        .HasColumnType("text")
+                        .HasColumnName("execution_result");
+
+                    b.Property<string>("HangfireJobId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("hangfire_job_id");
+
+                    b.Property<Guid>("IntentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("intent_id");
+
+                    b.Property<string>("OriginalInstruction")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("original_instruction");
+
+                    b.Property<DateTime>("ScheduledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("scheduled_at_utc");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("TimeZoneId")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasDefaultValue("UTC")
+                        .HasColumnName("time_zone_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IntentId")
+                        .IsUnique();
+
+                    b.HasIndex("ChatId", "Status");
+
+                    b.ToTable("deferred_intents", (string)null);
                 });
 
             modelBuilder.Entity("Assistant.Api.Domain.Entities.Expense", b =>
@@ -229,6 +296,53 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("telegram_users", (string)null);
                 });
 
+            modelBuilder.Entity("Assistant.Api.Domain.Entities.UserMemory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<int>("Importance")
+                        .HasColumnType("integer")
+                        .HasColumnName("importance");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<int>("TelegramUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("telegram_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TelegramUserId");
+
+                    b.ToTable("user_memories", (string)null);
+                });
+
             modelBuilder.Entity("Assistant.Api.Domain.Entities.AssistantPersonality", b =>
                 {
                     b.HasOne("Assistant.Api.Domain.Entities.TelegramUser", "TelegramUser")
@@ -251,11 +365,24 @@ namespace Assistant.Api.Data.Migrations
                     b.Navigation("TelegramUser");
                 });
 
+            modelBuilder.Entity("Assistant.Api.Domain.Entities.UserMemory", b =>
+                {
+                    b.HasOne("Assistant.Api.Domain.Entities.TelegramUser", "TelegramUser")
+                        .WithMany("Memories")
+                        .HasForeignKey("TelegramUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TelegramUser");
+                });
+
             modelBuilder.Entity("Assistant.Api.Domain.Entities.TelegramUser", b =>
                 {
                     b.Navigation("AssistantPersonality");
 
                     b.Navigation("Expenses");
+
+                    b.Navigation("Memories");
                 });
 #pragma warning restore 612, 618
         }
