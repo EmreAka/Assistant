@@ -155,9 +155,9 @@ public class AgentService(
         long? cachedInputTokenCount,
         long? outputTokenCount)
     {
-        const decimal inputPricePerMillion = 2.00m;
-        const decimal cachedInputPricePerMillion = 0.20m;
-        const decimal outputPricePerMillion = 6.00m;
+        const decimal inputPricePerMillion = 0.25m;
+        const decimal cachedInputPricePerMillion = 0.025m;
+        const decimal outputPricePerMillion = 1.50m;
         const decimal tokensPerMillion = 1_000_000m;
 
         var totalInputTokens = Math.Max(0, inputTokenCount ?? 0);
