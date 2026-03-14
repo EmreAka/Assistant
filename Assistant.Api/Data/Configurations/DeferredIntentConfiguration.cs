@@ -33,8 +33,11 @@ public class DeferredIntentConfiguration : IEntityTypeConfiguration<DeferredInte
             .IsRequired();
 
         builder.Property(x => x.ScheduledAtUtc)
-            .HasColumnName("scheduled_at_utc")
-            .IsRequired();
+            .HasColumnName("scheduled_at_utc");
+
+        builder.Property(x => x.CronExpression)
+            .HasColumnName("cron_expression")
+            .HasMaxLength(128);
 
         builder.Property(x => x.TimeZoneId)
             .HasColumnName("time_zone_id")

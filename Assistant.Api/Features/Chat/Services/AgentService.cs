@@ -17,6 +17,7 @@ public class AgentService(
     IMemoryService memoryService,
     ApplicationDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
+    IRecurringJobManager recurringJobManager,
     IOptions<AiOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<MemoryToolFunctions> memoryToolLogger,
@@ -36,7 +37,7 @@ public class AgentService(
         try
         {
             var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
-            var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, aiOptions, taskToolLogger);
+            var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
 
             var tools = new List<AITool>

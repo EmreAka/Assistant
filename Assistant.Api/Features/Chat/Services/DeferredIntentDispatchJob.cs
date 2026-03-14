@@ -18,9 +18,9 @@ public class DeferredIntentDispatchJob(
         var intent = await dbContext.DeferredIntents
             .FirstOrDefaultAsync(x => x.IntentId == intentId);
 
-        if (intent == null || intent.Status != DeferredIntentStatuses.Scheduled)
+        if (intent == null || (intent.Status != DeferredIntentStatuses.Scheduled && intent.Status != DeferredIntentStatuses.Recurring))
         {
-            logger.LogWarning("Deferred intent not found or not in scheduled state: {IntentId}", intentId);
+            logger.LogWarning("Deferred intent not found or not in executable state: {IntentId}", intentId);
             return;
         }
 
@@ -33,6 +33,7 @@ public class DeferredIntentDispatchJob(
                                 The user asked you to perform this task earlier.
                                 ORIGINAL INSTRUCTION: {intent.OriginalInstruction}
                                 Current UTC Time: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}
+                                Is Recurring: {intent.IsRecurring}
 
                                 MISSION: Use your personality and tools to complete the goal. 
                                 Do not ask the user for permission; just do it and report the result.
@@ -53,7 +54,11 @@ public class DeferredIntentDispatchJob(
                 cancellationToken: CancellationToken.None
             );
 
-            intent.Status = DeferredIntentStatuses.Completed;
+            if (!intent.IsRecurring)
+            {
+                intent.Status = DeferredIntentStatuses.Completed;
+            }
+            
             intent.ExecutionResult = result;
             intent.ExecutedAtUtc = DateTime.UtcNow;
             await dbContext.SaveChangesAsync();
@@ -63,7 +68,10 @@ public class DeferredIntentDispatchJob(
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to execute deferred intent: {IntentId}", intentId);
-            intent.Status = DeferredIntentStatuses.Failed;
+            if (!intent.IsRecurring)
+            {
+                intent.Status = DeferredIntentStatuses.Failed;
+            }
             intent.ExecutionResult = $"Error: {ex.Message}";
             await dbContext.SaveChangesAsync();
         }

@@ -36,7 +36,12 @@ public class PendingTaskContextProvider(
         }
 
         var taskLines = pendingTasks
-            .Select(task => $"- [{BuildTimingLabel(task.ScheduledAtUtc, nowUtc)}] {FormatScheduledTime(task)}: {task.OriginalInstruction}")
+            .Select(task =>
+            {
+                var timing = task.IsRecurring ? "recurring" : BuildTimingLabel(task.ScheduledAtUtc ?? DateTime.MinValue, nowUtc);
+                var schedule = task.IsRecurring ? $"Cron: {task.CronExpression}" : FormatScheduledTime(task);
+                return $"- [{timing}] {schedule}: {task.OriginalInstruction}";
+            })
             .ToArray();
 
         return new AIContext
@@ -58,19 +63,20 @@ public class PendingTaskContextProvider(
 
     private static string FormatScheduledTime(DeferredIntent task)
     {
+        if (!task.ScheduledAtUtc.HasValue) return "Unscheduled";
         try
         {
             var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(task.TimeZoneId);
-            var localTime = TimeZoneInfo.ConvertTimeFromUtc(task.ScheduledAtUtc, timeZoneInfo);
+            var localTime = TimeZoneInfo.ConvertTimeFromUtc(task.ScheduledAtUtc.Value, timeZoneInfo);
             return $"{localTime:yyyy-MM-dd HH:mm} {task.TimeZoneId}";
         }
         catch (TimeZoneNotFoundException)
         {
-            return $"{task.ScheduledAtUtc:yyyy-MM-dd HH:mm} UTC";
+            return $"{task.ScheduledAtUtc.Value:yyyy-MM-dd HH:mm} UTC";
         }
         catch (InvalidTimeZoneException)
         {
-            return $"{task.ScheduledAtUtc:yyyy-MM-dd HH:mm} UTC";
+            return $"{task.ScheduledAtUtc.Value:yyyy-MM-dd HH:mm} UTC";
         }
     }
 }
