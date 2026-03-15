@@ -1,4 +1,3 @@
-using System.ClientModel;
 using System.Collections.Concurrent;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
@@ -8,7 +7,6 @@ using Hangfire;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
-using OpenAI;
 
 namespace Assistant.Api.Features.Chat.Services;
 
@@ -21,7 +19,8 @@ public class AgentService(
     IOptions<AiOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<MemoryToolFunctions> memoryToolLogger,
-    ILogger<TaskToolFunctions> taskToolLogger
+    ILogger<TaskToolFunctions> taskToolLogger,
+    ILogger<WebSearchToolFunctions> webSearchToolLogger
 ) : IAgentService
 {
     private readonly AiOptions _aiOptions = aiOptions.Value;
@@ -39,9 +38,11 @@ public class AgentService(
             var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
+            var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
 
             var tools = new List<AITool>
             {
+                AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
                 AIFunctionFactory.Create(memoryToolFunctions.SaveMemory),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
                 AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime)
@@ -148,6 +149,11 @@ public class AgentService(
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
                - Check pending tasks and open loops before scheduling a duplicate task.
+
+               Web search rules:
+               - Use the SearchWeb tool for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.
+               - Do not use SearchWeb when the answer can be derived from the current conversation, saved memory, pending tasks, or stable general knowledge.
+               - If SearchWeb returns uncertain or mixed results, say so briefly instead of overstating confidence.
                """;
     }
 
