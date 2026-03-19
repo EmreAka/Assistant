@@ -9,8 +9,9 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 ## Current Status
 - The implementation is intentionally minimal.
 - A clean and extensible command infrastructure is already in place.
-- Current command support includes startup, natural-language reminder creation, and expense statement analysis.
+- Current command support includes startup, free-form chat/task handling, live TEFAS fund analysis, and expense statement analysis.
 - Credit card statement PDFs can now be analyzed and persisted as billing-period expense summaries.
+- TEFAS fund pages can now be fetched live, normalized into structured data, and summarized through the agent with a deterministic fallback.
 - Incoming Telegram updates are queued and processed in the background via Hangfire.
 - A Hangfire recurring job is configured to send end-of-workday reminders to registered users.
 
@@ -20,19 +21,28 @@ The bot currently supports the following commands:
 | Command | Description |
 | --- | --- |
 | `/start` | Starts the assistant and sends a welcome message. |
-| `/remind` | Creates one-time or recurring reminders from natural language input (private chat only). |
+| `/chat` | General-purpose chat entrypoint. The agent can answer questions and create reminders/tasks from natural language. |
 | `/expense` | Shows the user's current expense summary and can analyze uploaded credit card statement PDFs. |
+| `/tefas` | Fetches live TEFAS fund data for a fund code and returns a short AI-generated fund summary. |
 
 Bot commands are registered with Telegram during application startup via `SetMyCommands`.
 
 Example:
-- `/remind 5 saat sonra Mustafa abiyle toplantımı hatırlat`
+- `/chat 5 saat sonra Mustafa abiyle toplantımı hatırlat`
 - `/expense`
+- `/tefas AFT`
 
 Expense flow:
 - Run `/expense` in a private chat to see the currently saved total expense amount.
 - Upload a credit card statement PDF with the `/expense` command caption to trigger analysis.
 - The bot extracts statement text through Markitdown, asks the AI agent for a single billing-period summary, and saves that result to the `Expenses` table.
+
+TEFAS flow:
+- Run `/tefas <FUND_CODE>` such as `/tefas AFT`.
+- The bot fetches `https://www.tefas.gov.tr/FonAnaliz.aspx?FonKod=<FUND_CODE>` live on each request.
+- Summary metrics, return windows, fund profile fields, asset allocation, one-year comparison data, and the latest available TEFAS date are parsed and normalized.
+- That structured snapshot is passed to the existing agent service with TEFAS-specific instructions so the answer stays grounded in the scraped data.
+- If the agent fails, the bot still returns a deterministic fallback summary based on the parsed TEFAS snapshot.
 
 ## Scheduled Jobs (Hangfire)
 The project includes a recurring Hangfire job:
@@ -60,6 +70,14 @@ Implementation notes:
   - Returns the user's current expense total or handles statement PDF uploads for automated expense registration.
 - `ExpenseAnalysisService`
   - Sends uploaded PDFs to Markitdown for text extraction, invokes the AI agent with tool-calling, and persists a single billing-period expense summary.
+- `TefasCommand`
+  - Accepts `/tefas <code>`, validates the input, invokes the TEFAS analysis service, and sends the response back to Telegram.
+- `TefasAnalysisService`
+  - Fetches the TEFAS analysis page live, parses and normalizes the fund snapshot, invokes the AI agent with TEFAS-specific augmentation, and falls back to a deterministic summary if needed.
+- `TefasHtmlParser`
+  - Uses DOM parsing plus targeted extraction of embedded chart data to turn the TEFAS HTML page into a structured fund snapshot.
+- `TelegramResponseSender`
+  - Centralizes long Telegram message splitting and Markdown fallback handling for agent-style responses.
 
 ## How It Works (Request Flow)
 1. Telegram sends an update to `POST /bot/update`.
@@ -69,7 +87,7 @@ Implementation notes:
 5. `CommandUpdateJob` invokes `CommandUpdateHandler`.
 6. `CommandUpdateHandler` extracts the `/command` from the incoming text or caption.
 7. `BotCommandFactory` resolves the matching command handler.
-8. The command executes and sends responses through `ITelegramBotClient`.
+8. The command executes and sends its response either through `TelegramResponseSender` or directly through `ITelegramBotClient`, depending on the command path.
 
 ## Quick Start
 ### Prerequisites
@@ -77,6 +95,7 @@ Implementation notes:
 - A Telegram bot token
 - A Google Gemini API key
 - A Markitdown service endpoint for PDF-to-markdown conversion
+- Outbound access to `https://www.tefas.gov.tr/` for live fund scraping
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
 
@@ -132,6 +151,11 @@ Assistant/
 │   ├── Data/
 │   │   ├── Configurations/
 │   │   └── Migrations/
+│   ├── Features/
+│   │   ├── Chat/
+│   │   ├── Expense/
+│   │   ├── Tefas/
+│   │   └── UserManagement/
 │   ├── Services/
 │   │   ├── Abstracts/
 │   │   └── Concretes/
@@ -139,6 +163,8 @@ Assistant/
 │   └── Domain/
 │       ├── Configurations/
 │       └── Entities/
+├── Assistant.Api.Tests/
+│   └── Tefas/
 └── Assistant.sln
 ```
 
@@ -146,3 +172,4 @@ Assistant/
 Near-term focus areas:
 - Richer expense reporting and breakdowns on top of persisted billing-period summaries
 - Additional document-driven workflows using the existing background processing pipeline
+- Broader investment and finance workflows on top of the new TEFAS ingestion path
