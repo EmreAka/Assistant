@@ -3,6 +3,8 @@ using Assistant.Api.Features.Chat.Commands;
 using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Features.Expense.Commands;
 using Assistant.Api.Features.Expense.Services;
+using Assistant.Api.Features.Tefas.Commands;
+using Assistant.Api.Features.Tefas.Services;
 using Assistant.Api.Features.UserManagement.Commands;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
@@ -15,6 +17,7 @@ namespace Assistant.Api.Extensions;
 public static class BotServiceRegistration
 {
     public const string MarkitdownHttpClientName = "Markitdown";
+    public const string TefasHttpClientName = "Tefas";
 
     public static IServiceCollection AddBotServices(
         this IServiceCollection services,
@@ -33,19 +36,29 @@ public static class BotServiceRegistration
                 client.BaseAddress = new Uri(options.Endpoint);
             }
         });
+        services.AddHttpClient(TefasHttpClientName, client =>
+        {
+            client.BaseAddress = new Uri("https://www.tefas.gov.tr/");
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("AssistantBot/1.0");
+            client.Timeout = TimeSpan.FromSeconds(20);
+        });
 
         services.AddSingleton<ITelegramBotClient>(provider =>
             new TelegramBotClient(
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
 
+        services.AddSingleton<ITelegramResponseSender, TelegramResponseSender>();
         services.AddScoped<IPersonalityService, PersonalityService>();
         services.AddScoped<IMemoryService, MemoryService>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
         services.AddScoped<IAgentService, AgentService>();
+        services.AddScoped<ITefasHtmlParser, TefasHtmlParser>();
+        services.AddScoped<ITefasAnalysisService, TefasAnalysisService>();
 
         services.AddTransient<IBotCommand, ExpenseCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommand, ChatCommand>();
+        services.AddTransient<IBotCommand, TefasCommand>();
         services.AddTransient<IBotCommandFactory, BotCommandFactory>();
         services.AddTransient<ICommandUpdateHandler, CommandUpdateHandler>();
 

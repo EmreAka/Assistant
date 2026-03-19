@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="tr">
+<body>
+<h2>AK PORTFÖY YENİ TEKNOLOJİLER YABANCI HİSSE SENEDİ FONU</h2>
+
+<ul>
+    <li>Son Fiyat (TL)<br><br><span>0,838944</span></li>
+    <li>Günlük Getiri (%)<br><br><span>%-0,1552</span></li>
+    <li>Pay (Adet)<br><br><span>29.247.232.572</span></li>
+    <li>Fon Toplam Değer (TL)<br><br><span>24.536.779.779,29</span></li>
+    <li>Kategorisi<br><br><span>Hisse Senedi Fonu</span></li>
+    <li>Son Bir Yıllık Kategori Derecesi<br><br><span>7 / 184</span></li>
+    <li>Yatırımcı Sayısı (Kişi)<br><br><span>147.531</span></li>
+    <li>Pazar Payı<br><br><span>%12,82</span></li>
+    <li>Son 1 Ay Getirisi<br><span>%2,408656</span></li>
+    <li>Son 3 Ay Getirisi<br><span>%1,570021</span></li>
+    <li>Son 6 Ay Getirisi<br><span>%10,489571</span></li>
+    <li>Son 1 Yıl Getirisi<br><span>%66,577449</span></li>
+</ul>
+
+<table id="MainContent_DetailsViewFund">
+    <tbody>
+    <tr><td>Kodu</td><td>AFT</td></tr>
+    <tr><td>ISIN Kodu</td><td>TRYAKBK00144</td></tr>
+    <tr><td>Platform İşlem Durumu</td><td>TEFAS'ta işlem görüyor</td></tr>
+    <tr><td>İşlem Başlangıç Saati</td><td>09:00</td></tr>
+    <tr><td>Son İşlem Saati</td><td>17:45</td></tr>
+    <tr><td>Fon Alış Valörü</td><td>1</td></tr>
+    <tr><td>Fon Satış Valörü</td><td>2</td></tr>
+    <tr><td>Min. Alış İşlem Miktarı </td><td>1</td></tr>
+    <tr><td>Min. Satış İşlem Miktarı </td><td>1</td></tr>
+    <tr><td>Max. Alış İşlem Miktarı </td><td>99.000.000.000</td></tr>
+    <tr><td>Max. Satış İşlem Miktarı </td><td>90.000.000.000</td></tr>
+    <tr><td>Giriş Komisyonu</td><td>&nbsp;</td></tr>
+    <tr><td>Çıkış Komisyonu</td><td>&nbsp;</td></tr>
+    <tr><td>Fonun Faiz İçeriği</td><td>&nbsp;</td></tr>
+    <tr><td>Fonun Risk Değeri</td><td>6</td></tr>
+    <tr><td><a href="https://www.kap.org.tr/tr/fon-bilgileri/genel/aft-ak-portfoy-yeni-teknolojiler-yabanci-hisse-senedi-fonu">KAP Bilgi Adresi</a></td><td>&nbsp;</td></tr>
+    </tbody>
+</table>
+
+<script>
+var chartMainContent_FonFiyatGrafik;
+$(document).ready(function() {
+    chartMainContent_FonFiyatGrafik = new Highcharts.Chart({
+        xAxis: [{"categories":["19.03.2025","18.03.2026"]}],
+        series: [{"data":[0.503636,0.872769]}]
+    });
+
+    chartMainContent_PieChartFonDagilim = new Highcharts.Chart({
+        series: [{"name":"Varlık Dağılımı","type":"pie","data":[["Yabancı Hisse Senedi",99.15],["Mevduat (TL)",0.05],["Yatırım Fonları Katılma Payları",0.63],["Ters-Repo",0.17]],"showInLegend":true}]
+    });
+
+    chartMainContent_ColumnChartMatch = new Highcharts.Chart({
+        series: [{"name":"USD","id":"USD","data":[20.61]},{"name":"HISSE SENEDI ŞEMSIYE FONU","id":"HISSE SENEDI ŞEMSIYE FONU","data":[27.13]},{"name":"AFT","id":"AK PORTFÖY YENİ TEKNOLOJİLER YABANCI HİSSE SENEDİ FONU","data":[66.58]},{"name":"ALTIN","id":"ALTIN","data":[91.52]}]
+    });
+});
+</script>
+</body>
+</html>
