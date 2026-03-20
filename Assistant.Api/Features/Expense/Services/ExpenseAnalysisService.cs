@@ -5,7 +5,6 @@ using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Features.Expense.Models;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Extensions;
-using Google.GenAI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -38,9 +37,10 @@ public class ExpenseAnalysisService(
             var expenseToolFunctions = new ExpenseToolFunctions(userId, dbContext, toolLogger);
             var tools = new List<AITool> { AIFunctionFactory.Create(expenseToolFunctions.RegisterExpenses) };
 
-            var geminiClient = new Client(apiKey: _aiOptions.GoogleApiKey);
-            var chatClient = geminiClient
-                .AsIChatClient(_aiOptions.Model)
+            var chatClient = _aiOptions
+                .CreateOpenAiClient()
+                .GetChatClient(_aiOptions.Model)
+                .AsIChatClient()
                 .AsBuilder()
                 .UseFunctionInvocation()
                 .Build();
