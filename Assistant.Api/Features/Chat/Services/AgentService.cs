@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
+using Assistant.Api.Features.Expense.Services;
 using Assistant.Api.Features.UserManagement.Services;
 using Hangfire;
 using Microsoft.Agents.AI;
@@ -19,7 +20,8 @@ public class AgentService(
     IOptions<AiOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<MemoryToolFunctions> memoryToolLogger,
-    ILogger<TaskToolFunctions> taskToolLogger
+    ILogger<TaskToolFunctions> taskToolLogger,
+    ILogger<ExpenseQueryToolFunctions> expenseToolLogger
 ) : IAgentService
 {
     private readonly AiOptions _aiOptions = aiOptions.Value;
@@ -37,12 +39,14 @@ public class AgentService(
             var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
+            var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
 
             var tools = new List<AITool>
             {
                 AIFunctionFactory.Create(memoryToolFunctions.SaveMemory),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
-                AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime)
+                AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime),
+                AIFunctionFactory.Create(expenseToolFunctions.QueryExpenses)
             };
 
             if (additionalTools != null)
@@ -147,6 +151,18 @@ public class AgentService(
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
                - Check pending tasks and open loops before scheduling a duplicate task.
+
+               Time tool rules:
+               - Use the GetCurrentDateTime tool whenever the answer depends on the current date, current time, today's date, day-of-week, or converting relative time phrases into exact dates.
+               - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions from memory; call GetCurrentDateTime first.
+               - When the user asks a time-sensitive question, prefer using the exact date returned by the tool in the response.
+
+               Expense tool rules:
+               - When the user asks about spending, expenses, where money went, totals for a period, or top merchants/descriptions, use the QueryExpenses tool before answering.
+               - Do not invent expense totals, dates, trends, merchants, or categories without using the expense tool.
+               - The expense data has descriptions, not canonical categories. If grouping is needed, prefer description-based groupings unless the user asks for a date-based view.
+               - For relative dates like "last month" or "this week", resolve them into exact date filters and prefer mentioning exact date ranges in the response.
+               - If the expense tool says there is no matching data, say that clearly and suggest a broader filter only when useful.
                """;
     }
 

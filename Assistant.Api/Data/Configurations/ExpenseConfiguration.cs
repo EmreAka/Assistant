@@ -20,6 +20,10 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
             .HasColumnName("telegram_user_id")
             .IsRequired();
 
+        builder.Property(x => x.ExpenseDate)
+            .HasColumnName("expense_date")
+            .IsRequired();
+
         builder.Property(x => x.Amount)
             .HasColumnName("amount")
             .IsRequired();
@@ -33,17 +37,20 @@ public class ExpenseConfiguration : IEntityTypeConfiguration<Expense>
             .HasColumnName("description")
             .IsRequired();
 
-        builder.Property(x => x.BillingPeriodStartDate)
-            .HasColumnName("billing_period_start_date")
-            .IsRequired();
-
-        builder.Property(x => x.BillingPeriodEndDate)
-            .HasColumnName("billing_period_end_date")
+        builder.Property(x => x.StatementFingerprint)
+            .HasColumnName("statement_fingerprint")
+            .HasMaxLength(64)
             .IsRequired();
 
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
+
+        builder.HasIndex(x => x.TelegramUserId)
+            .HasDatabaseName("IX_expenses_telegram_user_id");
+
+        builder.HasIndex(x => new { x.TelegramUserId, x.StatementFingerprint })
+            .HasDatabaseName("IX_expenses_telegram_user_id_statement_fingerprint");
 
         builder.HasOne(x => x.TelegramUser)
             .WithMany(u => u.Expenses)

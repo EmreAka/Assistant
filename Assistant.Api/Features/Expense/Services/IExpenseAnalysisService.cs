@@ -2,10 +2,22 @@ using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
 namespace Assistant.Api.Features.Expense.Services;
 
+public record StatementExpenseItem(
+    DateOnly Date,
+    string Name,
+    decimal Price
+);
+
+public record ParsedExpenseStatement(
+    IReadOnlyList<StatementExpenseItem> Expenses,
+    decimal Total
+);
+
 public record ExpenseAnalysisResponse(
     bool IsSuccess,
     string UserMessage,
-    List<ExpenseModel>? Expenses = null
+    List<ExpenseModel>? Expenses = null,
+    ParsedExpenseStatement? ParsedStatement = null
 );
 
 public interface IExpenseAnalysisService
