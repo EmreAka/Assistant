@@ -17,10 +17,12 @@ public class AgentService(
     ApplicationDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
     IRecurringJobManager recurringJobManager,
+    IHttpClientFactory httpClientFactory,
     IOptions<AiOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<MemoryToolFunctions> memoryToolLogger,
     ILogger<TaskToolFunctions> taskToolLogger,
+    ILogger<WebSearchToolFunctions> webSearchToolLogger,
     ILogger<ExpenseQueryToolFunctions> expenseToolLogger
 ) : IAgentService
 {
@@ -39,10 +41,12 @@ public class AgentService(
             var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
+            var webSearchToolFunctions = new WebSearchToolFunctions(httpClientFactory, aiOptions, webSearchToolLogger);
             var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
 
             var tools = new List<AITool>
             {
+                AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
                 AIFunctionFactory.Create(memoryToolFunctions.SaveMemory),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
                 AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime),
@@ -151,6 +155,11 @@ public class AgentService(
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
                - Check pending tasks and open loops before scheduling a duplicate task.
+
+               Web search rules:
+               - Use the SearchWeb tool for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.
+               - Do not use SearchWeb when the answer can be derived from the current conversation, saved memory, pending tasks, or stable general knowledge.
+               - If SearchWeb returns uncertain or mixed results, say so briefly instead of overstating confidence.
 
                Time tool rules:
                - Use the GetCurrentDateTime tool whenever the answer depends on the current date, current time, today's date, day-of-week, or converting relative time phrases into exact dates.

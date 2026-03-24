@@ -10,6 +10,7 @@ using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
 using Assistant.Api.Services.Concretes;
 using Microsoft.Extensions.Options;
+using System.Net.Http.Headers;
 using Telegram.Bot;
 
 namespace Assistant.Api.Extensions;
@@ -17,6 +18,7 @@ namespace Assistant.Api.Extensions;
 public static class BotServiceRegistration
 {
     public const string MarkitdownHttpClientName = "Markitdown";
+    public const string OpenRouterHttpClientName = "OpenRouter";
     public const string TefasHttpClientName = "Tefas";
 
     public static IServiceCollection AddBotServices(
@@ -35,6 +37,23 @@ public static class BotServiceRegistration
             {
                 client.BaseAddress = new Uri(options.Endpoint);
             }
+        });
+        services.AddHttpClient(OpenRouterHttpClientName, (provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<AiOptions>>().Value;
+
+            if (!string.IsNullOrWhiteSpace(options.ApiUrl))
+            {
+                client.BaseAddress = new Uri($"{options.ApiUrl.TrimEnd('/')}/", UriKind.Absolute);
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.ApiKey))
+            {
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+            }
+
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.Timeout = TimeSpan.FromSeconds(45);
         });
         services.AddHttpClient(TefasHttpClientName, client =>
         {
