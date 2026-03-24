@@ -10,6 +10,7 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 - The implementation is intentionally minimal.
 - A clean and extensible command infrastructure is already in place.
 - Current command support includes startup, free-form chat/task handling, live TEFAS fund analysis, and expense statement analysis.
+- The chat agent can trigger live web search for fresh information such as prices, schedules, releases, and other time-sensitive public facts.
 - Credit card statement PDFs can now be analyzed and persisted as billing-period expense summaries.
 - TEFAS fund pages can now be fetched live, normalized into structured data, and summarized through the agent with a deterministic fallback.
 - Incoming Telegram updates are queued and processed in the background via Hangfire.
@@ -21,7 +22,7 @@ The bot currently supports the following commands:
 | Command | Description |
 | --- | --- |
 | `/start` | Starts the assistant and sends a welcome message. |
-| `/chat` | General-purpose chat entrypoint. The agent can answer questions and create reminders/tasks from natural language. |
+| `/chat` | General-purpose chat entrypoint. The agent can answer questions, create reminders/tasks from natural language, and use live web search when the answer depends on fresh public information. |
 | `/expense` | Shows the user's current expense summary and can analyze uploaded credit card statement PDFs. |
 | `/tefas` | Fetches live TEFAS fund data for a fund code and returns a short AI-generated fund summary. |
 
@@ -29,6 +30,7 @@ Bot commands are registered with Telegram during application startup via `SetMyC
 
 Example:
 - `/chat 5 saat sonra Mustafa abiyle toplantımı hatırlat`
+- `/chat NVIDIA stock price current`
 - `/expense`
 - `/tefas AFT`
 
@@ -76,6 +78,8 @@ Implementation notes:
   - Fetches the TEFAS analysis page live, parses and normalizes the fund snapshot, invokes the AI agent with TEFAS-specific augmentation, and falls back to a deterministic summary if needed.
 - `TefasHtmlParser`
   - Uses DOM parsing plus targeted extraction of embedded chart data to turn the TEFAS HTML page into a structured fund snapshot.
+- `WebSearchToolFunctions`
+  - Executes OpenRouter-backed web searches for fresh public information and returns a concise grounded summary back to the chat agent.
 - `TelegramResponseSender`
   - Centralizes long Telegram message splitting and Markdown fallback handling for agent-style responses.
 
@@ -93,8 +97,9 @@ Implementation notes:
 ### Prerequisites
 - .NET 10 SDK
 - A Telegram bot token
-- A Google Gemini API key
+- An OpenRouter API key
 - A Markitdown service endpoint for PDF-to-markdown conversion
+- Outbound access to `https://openrouter.ai/api/v1`
 - Outbound access to `https://www.tefas.gov.tr/` for live fund scraping
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
@@ -111,7 +116,10 @@ Set the `Bot` and `AI` sections in `Assistant.Api/appsettings.Development.json`:
     "AllowedChatIds": []
   },
   "AI": {
-    "GoogleApiKey": "YOUR_GOOGLE_GEMINI_API_KEY"
+    "ApiKey": "YOUR_OPENROUTER_API_KEY",
+    "ApiUrl": "https://openrouter.ai/api/v1",
+    "Model": "google/gemini-3.1-flash-lite-preview",
+    "DefaultTimeZoneId": "Europe/Istanbul"
   },
   "Markitdown": {
     "Endpoint": "YOUR_MARKITDOWN_ENDPOINT"
