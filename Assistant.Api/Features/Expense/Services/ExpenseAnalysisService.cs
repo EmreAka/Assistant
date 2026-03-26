@@ -271,7 +271,11 @@ public class ExpenseAnalysisService(
             ],
             new ChatOptions
             {
-                Temperature = 0
+                Temperature = 0,
+                Reasoning = new ReasoningOptions
+                {
+                    Effort = ReasoningEffort.ExtraHigh
+                }
             },
             cancellationToken);
 
