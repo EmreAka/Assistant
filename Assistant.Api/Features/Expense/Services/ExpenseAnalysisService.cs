@@ -7,7 +7,6 @@ using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
-using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
