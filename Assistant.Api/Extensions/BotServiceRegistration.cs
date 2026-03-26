@@ -27,7 +27,6 @@ public static class BotServiceRegistration
     {
         services.Configure<AiOptions>(configuration.GetSection("AI"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
-        services.Configure<CodeSandboxMcpOptions>(configuration.GetSection("CodeSandboxMcp"));
         services.Configure<MarkitdownOptions>(configuration.GetSection("Markitdown"));
 
         services.AddHttpClient(MarkitdownHttpClientName, (provider, client) =>

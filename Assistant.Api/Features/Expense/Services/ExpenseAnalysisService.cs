@@ -9,8 +9,6 @@ using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
-using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
 namespace Assistant.Api.Features.Expense.Services;
@@ -19,8 +17,6 @@ public class ExpenseAnalysisService(
     IHttpClientFactory httpClientFactory,
     ApplicationDbContext dbContext,
     IOptions<AiOptions> aiOptions,
-    IOptions<CodeSandboxMcpOptions> codeSandboxOptions,
-    ILoggerFactory loggerFactory,
     ILogger<ExpenseAnalysisService> logger
 ) : IExpenseAnalysisService
 {
@@ -31,8 +27,6 @@ public class ExpenseAnalysisService(
     };
 
     private readonly AiOptions _aiOptions = aiOptions.Value;
-    private readonly CodeSandboxMcpOptions _codeSandboxOptions = codeSandboxOptions.Value;
-    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     public async Task<ExpenseAnalysisResponse> AnalyzeStatementAsync(Stream pdfStream, long chatId, int userId, CancellationToken cancellationToken)
     {
@@ -47,7 +41,7 @@ public class ExpenseAnalysisService(
                 return new ExpenseAnalysisResponse(false, "PDF metni okunamadı.");
             }
 
-            var parsedStatement = await ParseStatementWithMcpAsync(pdfText, cancellationToken);
+            var parsedStatement = await ParseStatementWithLlmAsync(pdfText, cancellationToken);
             if (parsedStatement.Expenses.Count == 0)
             {
                 logger.LogWarning("No expenses were parsed from the statement.");
@@ -85,28 +79,27 @@ public class ExpenseAnalysisService(
         }
     }
 
-    private async Task<ParsedExpenseStatement> ParseStatementWithMcpAsync(string markdown, CancellationToken cancellationToken)
+    private async Task<ParsedExpenseStatement> ParseStatementWithLlmAsync(string markdown, CancellationToken cancellationToken)
     {
         logger.LogInformation(
-            "Starting MCP expense extraction. MarkdownLength={MarkdownLength} MarkdownPreview={MarkdownPreview}",
+            "Starting LLM expense extraction. MarkdownLength={MarkdownLength} MarkdownPreview={MarkdownPreview}",
             markdown.Length,
             TruncateForLog(markdown));
 
-        var pythonCode = await GenerateExtractionPythonAsync(markdown, cancellationToken);
-        var toolOutput = await ExecutePythonInSandboxAsync(pythonCode, cancellationToken);
+        var draftJson = await GenerateDraftExtractionAsync(markdown, cancellationToken);
+        var reviewedJson = await ReviewDraftExtractionAsync(markdown, draftJson, cancellationToken);
 
-        if (!TryParseExtractionResult(toolOutput, out var extractionResult, out var validationError))
+        if (!TryParseExtractionResult(reviewedJson, out var extractionResult, out var validationError))
         {
             logger.LogWarning(
-                "Generated extraction output was invalid. Retrying once. Error: {Error}",
+                "Reviewed extraction output was invalid. Retrying once. Error: {Error}",
                 validationError);
 
-            pythonCode = await RepairExtractionPythonAsync(markdown, pythonCode, toolOutput, validationError!, cancellationToken);
-            toolOutput = await ExecutePythonInSandboxAsync(pythonCode, cancellationToken);
+            reviewedJson = await RepairExtractionAsync(markdown, draftJson, reviewedJson, validationError!, cancellationToken);
 
-            if (!TryParseExtractionResult(toolOutput, out extractionResult, out validationError))
+            if (!TryParseExtractionResult(reviewedJson, out extractionResult, out validationError))
             {
-                throw new InvalidOperationException($"Sandbox extraction returned invalid JSON: {validationError}");
+                throw new InvalidOperationException($"LLM extraction returned invalid JSON: {validationError}");
             }
         }
 
@@ -151,114 +144,84 @@ public class ExpenseAnalysisService(
         }
     }
 
-    private async Task<string> GenerateExtractionPythonAsync(string markdown, CancellationToken cancellationToken)
+    private async Task<string> GenerateDraftExtractionAsync(string markdown, CancellationToken cancellationToken)
     {
-        var chatClient = _aiOptions
-            .CreateOpenAiClient()
-            .GetChatClient(_aiOptions.Model)
-            .AsIChatClient();
-
-        var messages = new[]
-        {
-            new ChatMessage(ChatRole.System, BuildPythonGenerationInstructions()),
-            new ChatMessage(ChatRole.User, BuildPythonGenerationInput(markdown))
-        };
-
-        var response = await chatClient.GetResponseAsync(
-            messages,
-            new ChatOptions
-            {
-                Temperature = 0
-            },
+        var responseText = await RunChatPromptAsync(
+            BuildDraftExtractionInstructions(),
+            BuildDraftExtractionInput(markdown),
             cancellationToken);
 
-        var pythonCode = ExtractPythonCode(response.Text);
+        var draftJson = ExtractJsonObject(responseText) ?? responseText.Trim();
         logger.LogInformation(
-            "Generated expense extraction Python. ResponsePreview={ResponsePreview} PythonPreview={PythonPreview}",
-            TruncateForLog(response.Text),
-            TruncateForLog(pythonCode));
+            "Generated draft expense extraction. ResponsePreview={ResponsePreview} DraftPreview={DraftPreview}",
+            TruncateForLog(responseText),
+            TruncateForLog(draftJson));
 
-        return pythonCode;
+        return draftJson;
     }
 
-    private async Task<string> RepairExtractionPythonAsync(
+    private async Task<string> ReviewDraftExtractionAsync(string markdown, string draftJson, CancellationToken cancellationToken)
+    {
+        var responseText = await RunChatPromptAsync(
+            BuildReviewInstructions(),
+            BuildReviewInput(markdown, draftJson),
+            cancellationToken);
+
+        var reviewedJson = ExtractJsonObject(responseText) ?? responseText.Trim();
+        logger.LogInformation(
+            "Reviewed draft expense extraction. ResponsePreview={ResponsePreview} ReviewedPreview={ReviewedPreview}",
+            TruncateForLog(responseText),
+            TruncateForLog(reviewedJson));
+
+        return reviewedJson;
+    }
+
+    private async Task<string> RepairExtractionAsync(
         string markdown,
-        string previousPythonCode,
-        string toolOutput,
+        string draftJson,
+        string reviewedJson,
         string validationError,
         CancellationToken cancellationToken)
     {
+        var responseText = await RunChatPromptAsync(
+            BuildRepairInstructions(),
+            BuildRepairInput(markdown, draftJson, reviewedJson, validationError),
+            cancellationToken);
+
+        var repairedJson = ExtractJsonObject(responseText) ?? responseText.Trim();
+        logger.LogInformation(
+            "Repaired expense extraction. ValidationError={ValidationError} ResponsePreview={ResponsePreview} RepairedPreview={RepairedPreview}",
+            validationError,
+            TruncateForLog(responseText),
+            TruncateForLog(repairedJson));
+
+        return repairedJson;
+    }
+
+    private async Task<string> RunChatPromptAsync(string systemInstructions, string userInput, CancellationToken cancellationToken)
+    {
         var chatClient = _aiOptions
             .CreateOpenAiClient()
             .GetChatClient(_aiOptions.Model)
             .AsIChatClient();
 
-        var messages = new[]
-        {
-            new ChatMessage(ChatRole.System, BuildPythonRepairInstructions()),
-            new ChatMessage(ChatRole.User, BuildPythonRepairInput(markdown, previousPythonCode, toolOutput, validationError))
-        };
-
         var response = await chatClient.GetResponseAsync(
-            messages,
+            [
+                new ChatMessage(ChatRole.System, systemInstructions),
+                new ChatMessage(ChatRole.User, userInput)
+            ],
             new ChatOptions
             {
                 Temperature = 0
             },
             cancellationToken);
 
-        var repairedPythonCode = ExtractPythonCode(response.Text);
-        logger.LogInformation(
-            "Repaired expense extraction Python. ValidationError={ValidationError} ResponsePreview={ResponsePreview} PythonPreview={PythonPreview}",
-            validationError,
-            TruncateForLog(response.Text),
-            TruncateForLog(repairedPythonCode));
-
-        return repairedPythonCode;
-    }
-
-    private async Task<string> ExecutePythonInSandboxAsync(string pythonCode, CancellationToken cancellationToken)
-    {
-        logger.LogInformation(
-            "Executing Python in MCP sandbox. Command={Command} Arguments={Arguments} ContainerImage={ContainerImage} ContainerLanguage={ContainerLanguage} PythonPreview={PythonPreview}",
-            _codeSandboxOptions.Command,
-            string.Join(" ", _codeSandboxOptions.Arguments),
-            _codeSandboxOptions.ContainerImage,
-            _codeSandboxOptions.ContainerLanguage,
-            TruncateForLog(pythonCode));
-
-        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        if (string.IsNullOrWhiteSpace(response.Text))
         {
-            Name = "code-sandbox-mcp",
-            Command = _codeSandboxOptions.Command,
-            Arguments = _codeSandboxOptions.Arguments,
-            EnvironmentVariables = new Dictionary<string, string?>
-            {
-                ["CONTAINER_IMAGE"] = _codeSandboxOptions.ContainerImage,
-                ["CONTAINER_LANGUAGE"] = _codeSandboxOptions.ContainerLanguage
-            }
-        });
+            throw new InvalidOperationException("AI extraction returned empty content.");
+        }
 
-        await using var mcpClient = await McpClient.CreateAsync(
-            transport,
-            loggerFactory: _loggerFactory,
-            cancellationToken: cancellationToken);
-
-        var result = await mcpClient.CallToolAsync(
-            "run_python_code",
-            new Dictionary<string, object?>
-            {
-                ["code"] = pythonCode
-            },
-            cancellationToken: cancellationToken);
-
-        var toolOutput = ExtractToolText(result);
-        logger.LogInformation(
-            "Received MCP sandbox response. IsError={IsError} OutputPreview={OutputPreview}",
-            result.IsError ?? false,
-            TruncateForLog(toolOutput));
-
-        return toolOutput;
+        return response.Text.Trim();
     }
 
     private async Task<List<ExpenseModel>> SaveParsedExpensesAsync(
@@ -327,23 +290,23 @@ public class ExpenseAnalysisService(
     }
 
     private static bool TryParseExtractionResult(
-        string toolOutput,
-        out SandboxExpenseExtractionResult? result,
+        string rawJson,
+        out ExpenseExtractionResult? result,
         out string? error)
     {
         result = null;
         error = null;
 
-        var jsonPayload = ExtractJsonObject(toolOutput);
+        var jsonPayload = ExtractJsonObject(rawJson);
         if (string.IsNullOrWhiteSpace(jsonPayload))
         {
-            error = "Sandbox output did not contain a JSON object.";
+            error = "Response did not contain a JSON object.";
             return false;
         }
 
         try
         {
-            result = JsonSerializer.Deserialize<SandboxExpenseExtractionResult>(jsonPayload, JsonOptions);
+            result = JsonSerializer.Deserialize<ExpenseExtractionResult>(jsonPayload, JsonOptions);
         }
         catch (Exception ex)
         {
@@ -370,7 +333,9 @@ public class ExpenseAnalysisService(
             return false;
         }
 
+        var normalizedExpenses = new List<ExpenseExtractionItem>(result.Expenses.Count);
         var seenRows = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var item in result.Expenses)
         {
             if (item is null)
@@ -404,17 +369,25 @@ public class ExpenseAnalysisService(
                 return false;
             }
 
-            var dedupeKey = $"{item.Date}|{item.Description.Trim()}|{item.Amount.ToString("0.00", CultureInfo.InvariantCulture)}|{itemCurrency}";
-            seenRows.Add(dedupeKey);
+            var normalizedDescription = Regex.Replace(item.Description.Trim(), @"\s+", " ");
+            var dedupeKey = $"{item.Date}|{normalizedDescription}|{item.Amount.ToString("0.00", CultureInfo.InvariantCulture)}|{itemCurrency}";
+            if (!seenRows.Add(dedupeKey))
+            {
+                continue;
+            }
+
+            normalizedExpenses.Add(item with
+            {
+                Description = normalizedDescription,
+                Currency = itemCurrency
+            });
         }
 
-        var normalizedExpenses = result.Expenses
-            .Select(item => item with
-            {
-                Currency = NormalizeCurrency(item.Currency) ?? normalizedCurrency,
-                Description = Regex.Replace(item.Description!.Trim(), @"\s+", " ")
-            })
-            .ToList();
+        if (normalizedExpenses.Count == 0)
+        {
+            error = "No expenses remained after validation.";
+            return false;
+        }
 
         result = result with
         {
@@ -425,7 +398,7 @@ public class ExpenseAnalysisService(
         return true;
     }
 
-    private static ParsedExpenseStatement MapExtractionResult(SandboxExpenseExtractionResult result)
+    private static ParsedExpenseStatement MapExtractionResult(ExpenseExtractionResult result)
     {
         var statementCurrency = result.Currency ?? throw new InvalidOperationException("Statement currency cannot be null after validation.");
         var extractionItems = result.Expenses ?? throw new InvalidOperationException("Expenses cannot be null after validation.");
@@ -447,123 +420,108 @@ public class ExpenseAnalysisService(
             statementCurrency);
     }
 
-    private static string BuildPythonGenerationInstructions()
+    private static string BuildDraftExtractionInstructions()
     {
         return """
-               You write Python 3 code that extracts expense transactions from bank or credit card statement markdown.
-               Return only Python code. Do not use Markdown fences. Do not add explanations.
+               Extract expense transactions from statement markdown and return JSON only.
 
-               Hard requirements:
-               - Use only Python standard library.
-               - Read the provided markdown from a triple-quoted string variable named STATEMENT_MARKDOWN.
-               - Print exactly one JSON object to stdout and nothing else.
-               - The JSON must match this shape:
-                 {
-                   "currency": "TRY",
-                   "expenses": [
-                     {
-                       "date": "YYYY-MM-DD",
-                       "description": "merchant or transaction description",
-                       "amount": 123.45,
-                       "currency": "TRY"
-                     }
-                   ]
-                 }
-               - Include only actual expense transactions. Exclude payments, refunds, carry-over balances, rewards, statement totals, card limits, and summary rows.
-               - Amount must always be positive numbers.
-               - Preserve the merchant/description as it appears, but normalize repeated whitespace.
-               - If the statement does not explicitly specify item currency, use the statement currency.
-               - Before printing the final JSON, self-check whether the sum of extracted expense amounts matches any total spending / total purchases / statement total figures visible in the markdown. If it does not match, revise the extraction first and only then print the final JSON.
-               - Prefer being conservative over guessing. Never invent transactions.
+               Output schema:
+               {
+                 "currency": "TRY",
+                 "expenses": [
+                   {
+                     "date": "YYYY-MM-DD",
+                     "description": "merchant or transaction description",
+                     "amount": 123.45,
+                     "currency": "TRY"
+                   }
+                 ]
+               }
+
+               Rules:
+               - Include only real spending transactions.
+               - Exclude payments, previous balance carry-over, rewards, bonuses, refunds, fees only if clearly not spending, card limits, statement totals, and summary rows.
+               - Amounts must be positive.
+               - Preserve merchant names, but normalize whitespace.
+               - Use the statement currency unless a transaction clearly shows another currency.
+               - Prefer completeness over brevity: include every actual spending row you can justify from the markdown.
+               - Return JSON only. No markdown fences. No commentary.
                """;
     }
 
-    private static string BuildPythonGenerationInput(string markdown)
+    private static string BuildDraftExtractionInput(string markdown)
     {
         return $$"""
-                 Write a deterministic Python extractor for the following statement markdown.
+                 Extract all spending transactions from this statement markdown.
+                 Think carefully about installment rows, inline rows, and markdown table rows.
 
-                 STATEMENT_MARKDOWN = r'''
+                 Markdown:
                  {{markdown}}
-                 '''
                  """;
     }
 
-    private static string BuildPythonRepairInstructions()
+    private static string BuildReviewInstructions()
     {
         return """
-               You are fixing a Python expense extractor.
-               Return only corrected Python code. Do not use Markdown fences. Do not add explanations.
-               The corrected script must still print exactly one JSON object to stdout and nothing else.
-               Use only Python standard library.
+               You are reviewing a draft expense extraction against statement markdown.
+               Return corrected JSON only, using the same schema.
+
+               Review checklist:
+               - Add any missing spending rows.
+               - Remove rows that are not real spending.
+               - Fix dates, descriptions, currencies, and amounts.
+               - Check installment lines and mixed markdown table / inline formats carefully.
+               - Self-check the extracted total against any visible statement spending totals or section totals when they are available.
+               - Do not invent rows that cannot be justified from the markdown.
+               - Return JSON only. No markdown fences. No commentary.
                """;
     }
 
-    private static string BuildPythonRepairInput(
+    private static string BuildReviewInput(string markdown, string draftJson)
+    {
+        return $$"""
+                 Statement markdown:
+                 {{markdown}}
+
+                 Draft extraction JSON:
+                 {{draftJson}}
+                 """;
+    }
+
+    private static string BuildRepairInstructions()
+    {
+        return """
+               Repair an expense extraction JSON so it becomes valid and complete.
+               Return corrected JSON only, using the same schema.
+
+               Requirements:
+               - currency must be present
+               - expenses must be a non-empty array
+               - each expense must have ISO date, non-empty description, positive amount, and currency
+               - remove invalid rows, fix obvious formatting issues, and add clearly missing spending rows when needed
+               - return JSON only
+               """;
+    }
+
+    private static string BuildRepairInput(
         string markdown,
-        string previousPythonCode,
-        string toolOutput,
+        string draftJson,
+        string reviewedJson,
         string validationError)
     {
         return $$"""
-                 The previous script failed validation.
-
                  Validation error:
                  {{validationError}}
 
-                 Previous Python code:
-                 {{previousPythonCode}}
-
-                 Sandbox output:
-                 {{toolOutput}}
-
                  Statement markdown:
-                 STATEMENT_MARKDOWN = r'''
                  {{markdown}}
-                 '''
+
+                 Original draft JSON:
+                 {{draftJson}}
+
+                 Reviewed JSON:
+                 {{reviewedJson}}
                  """;
-    }
-
-    private static string ExtractPythonCode(string? responseText)
-    {
-        if (string.IsNullOrWhiteSpace(responseText))
-        {
-            throw new InvalidOperationException("AI code generation returned empty content.");
-        }
-
-        var trimmed = responseText.Trim();
-        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
-        {
-            return trimmed;
-        }
-
-        var code = Regex.Replace(trimmed, @"^```(?:python)?\s*", string.Empty, RegexOptions.IgnoreCase);
-        code = Regex.Replace(code, @"\s*```$", string.Empty);
-        return code.Trim();
-    }
-
-    private static string ExtractToolText(CallToolResult result)
-    {
-        var text = string.Join(
-            "\n",
-            result.Content
-                .OfType<TextContentBlock>()
-                .Select(block => block.Text)
-                .Where(static text => !string.IsNullOrWhiteSpace(text)));
-
-        if (!string.IsNullOrWhiteSpace(text))
-        {
-            return text.Trim();
-        }
-
-        if (result.StructuredContent is not JsonElement structuredContent)
-        {
-            return string.Empty;
-        }
-
-        return structuredContent.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
-            ? string.Empty
-            : structuredContent.GetRawText();
     }
 
     private static string? ExtractJsonObject(string rawText)
@@ -632,14 +590,14 @@ public class ExpenseAnalysisService(
 
 public sealed record MarkitdownConvertResponse(string? Filename, string? Markdown);
 
-public sealed record SandboxExpenseExtractionItem(
+public sealed record ExpenseExtractionItem(
     string? Date,
     string? Description,
     decimal Amount,
     string? Currency
 );
 
-public sealed record SandboxExpenseExtractionResult(
+public sealed record ExpenseExtractionResult(
     string? Currency,
-    List<SandboxExpenseExtractionItem>? Expenses
+    List<ExpenseExtractionItem>? Expenses
 );
