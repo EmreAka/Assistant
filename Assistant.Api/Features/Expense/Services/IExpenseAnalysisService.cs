@@ -5,12 +5,14 @@ namespace Assistant.Api.Features.Expense.Services;
 public record StatementExpenseItem(
     DateOnly Date,
     string Name,
-    decimal Price
+    decimal Price,
+    string Currency
 );
 
 public record ParsedExpenseStatement(
     IReadOnlyList<StatementExpenseItem> Expenses,
-    decimal Total
+    decimal Total,
+    string Currency
 );
 
 public record ExpenseAnalysisResponse(

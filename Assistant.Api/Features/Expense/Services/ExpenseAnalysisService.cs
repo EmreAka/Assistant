@@ -1,10 +1,16 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Assistant.Api.Data;
+using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
 namespace Assistant.Api.Features.Expense.Services;
@@ -12,68 +18,21 @@ namespace Assistant.Api.Features.Expense.Services;
 public class ExpenseAnalysisService(
     IHttpClientFactory httpClientFactory,
     ApplicationDbContext dbContext,
+    IOptions<AiOptions> aiOptions,
+    IOptions<CodeSandboxMcpOptions> codeSandboxOptions,
+    ILoggerFactory loggerFactory,
     ILogger<ExpenseAnalysisService> logger
 ) : IExpenseAnalysisService
 {
     private static readonly CultureInfo TurkishCulture = CultureInfo.GetCultureInfo("tr-TR");
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
-    private static readonly Regex TransactionDateRegex = new(
-        @"(?<date>\d{2} (?:Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık) 20\d{2})",
-        RegexOptions.Compiled);
-
-    private static readonly Regex AmountRegex = new(
-        @"(?<amount>\d{1,3}(?:\.\d{3})*,\d{2})(?<currency>\s*TL)?(?<sign>\s*[+-])?",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private static readonly Regex InstallmentAmountRegex = new(
-        @"(?<amount>\d{1,3}(?:\.\d{3})*,\d{2})\s*x\s*\d+\s*=\s*\d{1,3}(?:\.\d{3})*,\d{2}",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
-    private static readonly string[] SectionStartMarkers =
-    [
-        "BONUS PROGRAM ORTAKLARI'NDA YAPTIĞINIZ HARCAMALAR",
-        "BONUS PROGRAM ORTAKLARINDA YAPTIĞINIZ HARCAMALAR"
-    ];
-
-    private static readonly string[] SectionEndMarkers =
-    [
-        "EKSTRE ÖZETİ",
-        "Harcamalarınızın Dağılımı",
-        "EKSTRENİZ İLE İLGİLİ AÇIKLAMALAR"
-    ];
-
-    private static readonly string[] IgnoredDescriptionFragments =
-    [
-        "HARCANABİLIR BONUS",
-        "HARCANABİLİR BONUS",
-        "TOPLAM BORCUNUZ",
-        "İŞLEM TARİHİ",
-        "ISLEM TARIHI",
-        "EKSTRE SAYFASI",
-        "EKSTRE NO",
-        "SON ÖDEME TARİHİ",
-        "SON ODEME TARIHI",
-        "ÖNCEKİ DÖNEMDEN DEVİR",
-        "ONCEKI DONEMDEN DEVIR",
-        "ÖDEMENİZ İÇİN TEŞEKKÜR EDERİZ",
-        "ODEMENIZ ICIN TESEKKUR EDERIZ",
-        "MÜŞTERİ NUMARASI",
-        "MUSTERI NUMARASI",
-        "HESAP KESİM TARİHİ",
-        "HESAP KESIM TARIHI",
-        "KART NUMARASI"
-    ];
-
-    private static readonly string[] SegmentStopMarkers =
-    [
-        " Bonus Card'la ATM",
-        " Bonus Cardla ATM",
-        " Toplam ",
-        " TOPLAM ",
-        " Harcanabilir Bonus ",
-        " HARCANABİLİR BONUS ",
-        " HARCANABILIR BONUS "
-    ];
+    private readonly AiOptions _aiOptions = aiOptions.Value;
+    private readonly CodeSandboxMcpOptions _codeSandboxOptions = codeSandboxOptions.Value;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
     public async Task<ExpenseAnalysisResponse> AnalyzeStatementAsync(Stream pdfStream, long chatId, int userId, CancellationToken cancellationToken)
     {
@@ -88,7 +47,7 @@ public class ExpenseAnalysisService(
                 return new ExpenseAnalysisResponse(false, "PDF metni okunamadı.");
             }
 
-            var parsedStatement = ParseStatementMarkdown(pdfText);
+            var parsedStatement = await ParseStatementWithMcpAsync(pdfText, cancellationToken);
             if (parsedStatement.Expenses.Count == 0)
             {
                 logger.LogWarning("No expenses were parsed from the statement.");
@@ -126,30 +85,27 @@ public class ExpenseAnalysisService(
         }
     }
 
-    public static ParsedExpenseStatement ParseStatementMarkdown(string markdown)
+    private async Task<ParsedExpenseStatement> ParseStatementWithMcpAsync(string markdown, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(markdown))
+        var pythonCode = await GenerateExtractionPythonAsync(markdown, cancellationToken);
+        var toolOutput = await ExecutePythonInSandboxAsync(pythonCode, cancellationToken);
+
+        if (!TryParseExtractionResult(toolOutput, out var extractionResult, out var validationError))
         {
-            return new ParsedExpenseStatement([], 0m);
-        }
+            logger.LogWarning(
+                "Generated extraction output was invalid. Retrying once. Error: {Error}",
+                validationError);
 
-        var relevantSection = ExtractRelevantSection(markdown);
-        var matches = TransactionDateRegex.Matches(relevantSection);
-        var expenses = new List<StatementExpenseItem>();
+            pythonCode = await RepairExtractionPythonAsync(markdown, pythonCode, toolOutput, validationError!, cancellationToken);
+            toolOutput = await ExecutePythonInSandboxAsync(pythonCode, cancellationToken);
 
-        for (var index = 0; index < matches.Count; index++)
-        {
-            var segmentStart = matches[index].Index;
-            var segmentEnd = index + 1 < matches.Count ? matches[index + 1].Index : relevantSection.Length;
-            var segment = relevantSection[segmentStart..segmentEnd];
-
-            if (TryParseExpense(segment, out var expense))
+            if (!TryParseExtractionResult(toolOutput, out extractionResult, out validationError))
             {
-                expenses.Add(expense);
+                throw new InvalidOperationException($"Sandbox extraction returned invalid JSON: {validationError}");
             }
         }
 
-        return new ParsedExpenseStatement(expenses, expenses.Sum(x => x.Price));
+        return MapExtractionResult(extractionResult!);
     }
 
     private async Task<string?> ExtractTextFromPdfAsync(Stream pdfStream, CancellationToken cancellationToken)
@@ -190,6 +146,89 @@ public class ExpenseAnalysisService(
         }
     }
 
+    private async Task<string> GenerateExtractionPythonAsync(string markdown, CancellationToken cancellationToken)
+    {
+        var chatClient = _aiOptions
+            .CreateOpenAiClient()
+            .GetChatClient(_aiOptions.Model)
+            .AsIChatClient();
+
+        var messages = new[]
+        {
+            new ChatMessage(ChatRole.System, BuildPythonGenerationInstructions()),
+            new ChatMessage(ChatRole.User, BuildPythonGenerationInput(markdown))
+        };
+
+        var response = await chatClient.GetResponseAsync(
+            messages,
+            new ChatOptions
+            {
+                Temperature = 0
+            },
+            cancellationToken);
+
+        return ExtractPythonCode(response.Text);
+    }
+
+    private async Task<string> RepairExtractionPythonAsync(
+        string markdown,
+        string previousPythonCode,
+        string toolOutput,
+        string validationError,
+        CancellationToken cancellationToken)
+    {
+        var chatClient = _aiOptions
+            .CreateOpenAiClient()
+            .GetChatClient(_aiOptions.Model)
+            .AsIChatClient();
+
+        var messages = new[]
+        {
+            new ChatMessage(ChatRole.System, BuildPythonRepairInstructions()),
+            new ChatMessage(ChatRole.User, BuildPythonRepairInput(markdown, previousPythonCode, toolOutput, validationError))
+        };
+
+        var response = await chatClient.GetResponseAsync(
+            messages,
+            new ChatOptions
+            {
+                Temperature = 0
+            },
+            cancellationToken);
+
+        return ExtractPythonCode(response.Text);
+    }
+
+    private async Task<string> ExecutePythonInSandboxAsync(string pythonCode, CancellationToken cancellationToken)
+    {
+        var transport = new StdioClientTransport(new StdioClientTransportOptions
+        {
+            Name = "code-sandbox-mcp",
+            Command = _codeSandboxOptions.Command,
+            Arguments = _codeSandboxOptions.Arguments,
+            EnvironmentVariables = new Dictionary<string, string?>
+            {
+                ["CONTAINER_IMAGE"] = _codeSandboxOptions.ContainerImage,
+                ["CONTAINER_LANGUAGE"] = _codeSandboxOptions.ContainerLanguage
+            }
+        });
+
+        await using var mcpClient = await McpClient.CreateAsync(
+            transport,
+            loggerFactory: _loggerFactory,
+            cancellationToken: cancellationToken);
+
+        var result = await mcpClient.CallToolAsync(
+            "run_python_code",
+            new Dictionary<string, object?>
+            {
+                ["code"] = pythonCode
+            },
+            cancellationToken: cancellationToken);
+
+        return ExtractToolText(result);
+    }
+
     private async Task<List<ExpenseModel>> SaveParsedExpensesAsync(
         int userId,
         ParsedExpenseStatement parsedStatement,
@@ -203,7 +242,7 @@ public class ExpenseAnalysisService(
                 TelegramUserId = userId,
                 ExpenseDate = ToUtcDate(expense.Date),
                 Amount = expense.Price,
-                Currency = "TRY",
+                Currency = expense.Currency,
                 Description = expense.Name,
                 StatementFingerprint = statementFingerprint,
                 CreatedAt = createdAt
@@ -230,7 +269,7 @@ public class ExpenseAnalysisService(
 
         return
             $"{parsedStatement.Expenses.Count} işlem kaydedildi. " +
-            $"Toplam harcama: {parsedStatement.Total.ToString("N2", TurkishCulture)} TRY " +
+            $"Toplam harcama: {parsedStatement.Total.ToString("N2", TurkishCulture)} {parsedStatement.Currency} " +
             $"({start:dd.MM.yyyy} - {end:dd.MM.yyyy}).";
     }
 
@@ -241,7 +280,7 @@ public class ExpenseAnalysisService(
 
         return
             $"Bu ekstre zaten içeri aktarılmış. " +
-            $"{parsedStatement.Expenses.Count} işlem, toplam {parsedStatement.Total.ToString("N2", TurkishCulture)} TRY " +
+            $"{parsedStatement.Expenses.Count} işlem, toplam {parsedStatement.Total.ToString("N2", TurkishCulture)} {parsedStatement.Currency} " +
             $"({start:dd.MM.yyyy} - {end:dd.MM.yyyy}).";
     }
 
@@ -250,222 +289,295 @@ public class ExpenseAnalysisService(
         var payload = string.Join(
             "\n",
             parsedStatement.Expenses.Select(expense =>
-                $"{expense.Date:yyyy-MM-dd}|{NormalizeForFingerprint(expense.Name)}|{expense.Price.ToString("0.00", CultureInfo.InvariantCulture)}|TRY"));
+                $"{expense.Date:yyyy-MM-dd}|{NormalizeForFingerprint(expense.Name)}|{expense.Price.ToString("0.00", CultureInfo.InvariantCulture)}|{expense.Currency}"));
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 
-    private static string ExtractRelevantSection(string markdown)
+    private static bool TryParseExtractionResult(
+        string toolOutput,
+        out SandboxExpenseExtractionResult? result,
+        out string? error)
     {
-        var normalized = NormalizeStatementText(markdown);
-        var sectionStart = FindFirstMarker(normalized, SectionStartMarkers);
+        result = null;
+        error = null;
 
-        if (sectionStart < 0)
+        var jsonPayload = ExtractJsonObject(toolOutput);
+        if (string.IsNullOrWhiteSpace(jsonPayload))
         {
-            return normalized;
-        }
-
-        var relevantSection = normalized[sectionStart..];
-        var sectionEnd = FindFirstMarker(relevantSection, SectionEndMarkers);
-
-        return sectionEnd >= 0
-            ? relevantSection[..sectionEnd]
-            : relevantSection;
-    }
-
-    private static string NormalizeStatementText(string markdown)
-    {
-        var normalized = markdown
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Replace('\f', ' ')
-            .Replace('\u00A0', ' ')
-            .Replace('|', ' ');
-
-        normalized = Regex.Replace(normalized, @"\b(?:bosluk|bboosslluukk)\b", " ", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"-{2,}", " ");
-        normalized = Regex.Replace(normalized, @"Ekstre No\s*:\s*\S+", " ", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"Ekstre Sayfası\s*\d+\s*/\s*\d+", " ", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"Ekstre Sayfasi\s*\d+\s*/\s*\d+", " ", RegexOptions.IgnoreCase);
-        normalized = Regex.Replace(normalized, @"\s+", " ");
-
-        return normalized.Trim();
-    }
-
-    private static bool TryParseExpense(string segment, out StatementExpenseItem expense)
-    {
-        expense = null!;
-
-        var dateMatch = TransactionDateRegex.Match(segment);
-        if (!dateMatch.Success)
-        {
+            error = "Sandbox output did not contain a JSON object.";
             return false;
         }
 
-        var content = segment[(dateMatch.Index + dateMatch.Length)..].Trim();
-        content = TrimSegment(content);
-        if (string.IsNullOrWhiteSpace(content))
+        try
         {
+            result = JsonSerializer.Deserialize<SandboxExpenseExtractionResult>(jsonPayload, JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            error = $"JSON parse failed: {ex.Message}";
             return false;
         }
 
-        var nameBoundary = InstallmentAmountRegex.Match(content);
-        if (!nameBoundary.Success)
+        if (result is null)
         {
-            nameBoundary = AmountRegex.Match(content);
-        }
-
-        if (!nameBoundary.Success)
-        {
+            error = "JSON payload could not be deserialized.";
             return false;
         }
 
-        var name = CleanDescription(content[..nameBoundary.Index]);
-        if (ShouldIgnoreDescription(name))
+        if (result.Expenses.Count == 0)
         {
+            error = "No expenses were returned.";
             return false;
         }
 
-        var amount = ExtractAmount(content);
-        if (amount is null || amount <= 0)
+        var normalizedCurrency = NormalizeCurrency(result.Currency);
+        if (string.IsNullOrWhiteSpace(normalizedCurrency))
         {
+            error = "Statement currency is missing.";
             return false;
         }
 
-        var date = DateOnly.ParseExact(dateMatch.Groups["date"].Value, "dd MMMM yyyy", TurkishCulture);
-        expense = new StatementExpenseItem(date, name, amount.Value);
+        var seenRows = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in result.Expenses)
+        {
+            if (!DateOnly.TryParseExact(item.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+            {
+                error = $"Expense date is invalid: {item.Date}";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(item.Description))
+            {
+                error = "Expense description is missing.";
+                return false;
+            }
+
+            if (item.Amount <= 0)
+            {
+                error = $"Expense amount must be positive for '{item.Description}'.";
+                return false;
+            }
+
+            var itemCurrency = NormalizeCurrency(item.Currency) ?? normalizedCurrency;
+            if (!string.Equals(itemCurrency, normalizedCurrency, StringComparison.Ordinal))
+            {
+                error = $"Mixed currencies are not supported in the same statement: {itemCurrency} vs {normalizedCurrency}.";
+                return false;
+            }
+
+            var dedupeKey = $"{item.Date}|{item.Description.Trim()}|{item.Amount.ToString("0.00", CultureInfo.InvariantCulture)}|{itemCurrency}";
+            seenRows.Add(dedupeKey);
+        }
+
+        result = result with
+        {
+            Currency = normalizedCurrency,
+            Expenses = result.Expenses
+                .Select(item => item with
+                {
+                    Currency = NormalizeCurrency(item.Currency) ?? normalizedCurrency,
+                    Description = Regex.Replace(item.Description.Trim(), @"\s+", " ")
+                })
+                .ToList()
+        };
 
         return true;
     }
 
-    private static decimal? ExtractAmount(string content)
+    private static ParsedExpenseStatement MapExtractionResult(SandboxExpenseExtractionResult result)
     {
-        var installmentMatch = InstallmentAmountRegex.Match(content);
-        if (installmentMatch.Success)
-        {
-            return ParseAmount(installmentMatch.Groups["amount"].Value);
-        }
+        var expenses = result.Expenses
+            .Select(item => new StatementExpenseItem(
+                DateOnly.ParseExact(item.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                item.Description,
+                item.Amount,
+                item.Currency ?? result.Currency))
+            .OrderBy(item => item.Date)
+            .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Price)
+            .ToList();
 
-        var amountMatches = AmountRegex.Matches(content);
-        for (var index = amountMatches.Count - 1; index >= 0; index--)
-        {
-            var amount = ParseAmount(amountMatches[index].Groups["amount"].Value);
-            if (amount is null)
-            {
-                continue;
-            }
-
-            if (amountMatches[index].Groups["sign"].Value.Contains('-', StringComparison.Ordinal))
-            {
-                amount *= -1;
-            }
-
-            return amount;
-        }
-
-        return null;
+        return new ParsedExpenseStatement(
+            expenses,
+            expenses.Sum(x => x.Price),
+            result.Currency);
     }
 
-    private static decimal? ParseAmount(string rawAmount)
+    private static string BuildPythonGenerationInstructions()
     {
-        var normalized = rawAmount.Replace(".", string.Empty, StringComparison.Ordinal)
-            .Replace(",", ".", StringComparison.Ordinal);
+        return """
+               You write Python 3 code that extracts expense transactions from bank or credit card statement markdown.
+               Return only Python code. Do not use Markdown fences. Do not add explanations.
 
-        return decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount)
-            ? amount
-            : null;
+               Hard requirements:
+               - Use only Python standard library.
+               - Read the provided markdown from a triple-quoted string variable named STATEMENT_MARKDOWN.
+               - Print exactly one JSON object to stdout and nothing else.
+               - The JSON must match this shape:
+                 {
+                   "currency": "TRY",
+                   "expenses": [
+                     {
+                       "date": "YYYY-MM-DD",
+                       "description": "merchant or transaction description",
+                       "amount": 123.45,
+                       "currency": "TRY"
+                     }
+                   ]
+                 }
+               - Include only actual expense transactions. Exclude payments, refunds, carry-over balances, rewards, statement totals, card limits, and summary rows.
+               - Amount must always be positive numbers.
+               - Preserve the merchant/description as it appears, but normalize repeated whitespace.
+               - If the statement does not explicitly specify item currency, use the statement currency.
+               - Before printing the final JSON, self-check whether the sum of extracted expense amounts matches any total spending / total purchases / statement total figures visible in the markdown. If it does not match, revise the extraction first and only then print the final JSON.
+               - Prefer being conservative over guessing. Never invent transactions.
+               """;
     }
 
-    private static string CleanDescription(string rawDescription)
+    private static string BuildPythonGenerationInput(string markdown)
     {
-        var cleaned = rawDescription
-            .Replace(" TL", " ", StringComparison.OrdinalIgnoreCase)
-            .Trim();
+        return $$"""
+                 Write a deterministic Python extractor for the following statement markdown.
 
-        cleaned = Regex.Replace(cleaned, @"\s+", " ");
-        cleaned = cleaned.Trim(' ', '-', ':', '.', ',', ';');
+                 STATEMENT_MARKDOWN = r'''
+                 {{markdown}}
+                 '''
+                 """;
+    }
 
-        return cleaned;
+    private static string BuildPythonRepairInstructions()
+    {
+        return """
+               You are fixing a Python expense extractor.
+               Return only corrected Python code. Do not use Markdown fences. Do not add explanations.
+               The corrected script must still print exactly one JSON object to stdout and nothing else.
+               Use only Python standard library.
+               """;
+    }
+
+    private static string BuildPythonRepairInput(
+        string markdown,
+        string previousPythonCode,
+        string toolOutput,
+        string validationError)
+    {
+        return $$"""
+                 The previous script failed validation.
+
+                 Validation error:
+                 {{validationError}}
+
+                 Previous Python code:
+                 {{previousPythonCode}}
+
+                 Sandbox output:
+                 {{toolOutput}}
+
+                 Statement markdown:
+                 STATEMENT_MARKDOWN = r'''
+                 {{markdown}}
+                 '''
+                 """;
+    }
+
+    private static string ExtractPythonCode(string? responseText)
+    {
+        if (string.IsNullOrWhiteSpace(responseText))
+        {
+            throw new InvalidOperationException("AI code generation returned empty content.");
+        }
+
+        var trimmed = responseText.Trim();
+        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        var code = Regex.Replace(trimmed, @"^```(?:python)?\s*", string.Empty, RegexOptions.IgnoreCase);
+        code = Regex.Replace(code, @"\s*```$", string.Empty);
+        return code.Trim();
+    }
+
+    private static string ExtractToolText(CallToolResult result)
+    {
+        var text = string.Join(
+            "\n",
+            result.Content
+                .OfType<TextContentBlock>()
+                .Select(block => block.Text)
+                .Where(static text => !string.IsNullOrWhiteSpace(text)));
+
+        if (!string.IsNullOrWhiteSpace(text))
+        {
+            return text.Trim();
+        }
+
+        if (result.StructuredContent is not JsonElement structuredContent)
+        {
+            return string.Empty;
+        }
+
+        return structuredContent.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined
+            ? string.Empty
+            : structuredContent.GetRawText();
+    }
+
+    private static string? ExtractJsonObject(string rawText)
+    {
+        if (string.IsNullOrWhiteSpace(rawText))
+        {
+            return null;
+        }
+
+        var start = rawText.IndexOf('{', StringComparison.Ordinal);
+        var end = rawText.LastIndexOf('}');
+
+        if (start < 0 || end < start)
+        {
+            return null;
+        }
+
+        return rawText[start..(end + 1)];
+    }
+
+    private static string? NormalizeCurrency(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().ToUpperInvariant();
+        return normalized switch
+        {
+            "TL" => "TRY",
+            "₺" => "TRY",
+            _ => normalized
+        };
+    }
+
+    private static string NormalizeForFingerprint(string value)
+    {
+        return Regex.Replace(value.ToUpperInvariant(), @"\s+", " ").Trim();
     }
 
     private static DateTime ToUtcDate(DateOnly date)
     {
         return DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
     }
-
-    private static string TrimSegment(string content)
-    {
-        var trimmed = content;
-
-        foreach (var marker in SegmentStopMarkers)
-        {
-            var markerIndex = trimmed.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (markerIndex >= 0)
-            {
-                trimmed = trimmed[..markerIndex];
-            }
-        }
-
-        return trimmed.Trim();
-    }
-
-    private static bool ShouldIgnoreDescription(string description)
-    {
-        if (string.IsNullOrWhiteSpace(description))
-        {
-            return true;
-        }
-
-        var normalizedDescription = NormalizeForComparison(description);
-
-        if (normalizedDescription.Equals("TOPLAM", StringComparison.Ordinal))
-        {
-            return true;
-        }
-
-        foreach (var fragment in IgnoredDescriptionFragments)
-        {
-            if (normalizedDescription.Contains(NormalizeForComparison(fragment), StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string NormalizeForComparison(string value)
-    {
-        return value
-            .Replace('ı', 'i')
-            .Replace('İ', 'I')
-            .Replace('ş', 's')
-            .Replace('Ş', 'S')
-            .Replace('ğ', 'g')
-            .Replace('Ğ', 'G')
-            .Replace('ü', 'u')
-            .Replace('Ü', 'U')
-            .Replace('ö', 'o')
-            .Replace('Ö', 'O')
-            .Replace('ç', 'c')
-            .Replace('Ç', 'C')
-            .ToUpperInvariant();
-    }
-
-    private static string NormalizeForFingerprint(string value)
-    {
-        return Regex.Replace(NormalizeForComparison(value), @"\s+", " ").Trim();
-    }
-
-    private static int FindFirstMarker(string value, IEnumerable<string> markers)
-    {
-        var positions = markers
-            .Select(marker => value.IndexOf(marker, StringComparison.OrdinalIgnoreCase))
-            .Where(position => position >= 0)
-            .ToArray();
-
-        return positions.Length == 0 ? -1 : positions.Min();
-    }
 }
 
 public sealed record MarkitdownConvertResponse(string? Filename, string? Markdown);
+
+public sealed record SandboxExpenseExtractionItem(
+    string Date,
+    string Description,
+    decimal Amount,
+    string? Currency
+);
+
+public sealed record SandboxExpenseExtractionResult(
+    string Currency,
+    List<SandboxExpenseExtractionItem> Expenses
+);
