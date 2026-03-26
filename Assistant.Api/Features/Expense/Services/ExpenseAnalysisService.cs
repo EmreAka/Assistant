@@ -7,7 +7,7 @@ using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.AI;
+using System.Net.Http.Json;
 using Microsoft.Extensions.Options;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
@@ -34,14 +34,21 @@ public class ExpenseAnalysisService(
 
         try
         {
-            var pdfText = await ExtractTextFromPdfAsync(pdfStream, cancellationToken);
-            if (string.IsNullOrWhiteSpace(pdfText))
+            var pdfBytes = await ReadPdfBytesAsync(pdfStream, cancellationToken);
+            if (pdfBytes.Length == 0)
             {
-                logger.LogWarning("PDF text is empty.");
-                return new ExpenseAnalysisResponse(false, "PDF metni okunamadı.");
+                logger.LogWarning("PDF stream is empty.");
+                return new ExpenseAnalysisResponse(false, "PDF dosyası okunamadı.");
             }
 
-            var parsedStatement = await ParseStatementWithLlmAsync(pdfText, cancellationToken);
+            var parsedStatement = await ExtractFromPdfWithOpenRouterAsync(pdfBytes, cancellationToken);
+            if (parsedStatement is null)
+            {
+                return new ExpenseAnalysisResponse(
+                    false,
+                    "Ekstre şu anda işlenemedi. Lütfen biraz sonra tekrar deneyin.");
+            }
+
             if (parsedStatement.Expenses.Count == 0)
             {
                 logger.LogWarning("No expenses were parsed from the statement.");
@@ -79,208 +86,146 @@ public class ExpenseAnalysisService(
         }
     }
 
-    private async Task<ParsedExpenseStatement> ParseStatementWithLlmAsync(string markdown, CancellationToken cancellationToken)
+    private async Task<byte[]> ReadPdfBytesAsync(Stream pdfStream, CancellationToken cancellationToken)
     {
-        logger.LogInformation(
-            "Starting LLM expense extraction. MarkdownLength={MarkdownLength} MarkdownPreview={MarkdownPreview}",
-            markdown.Length,
-            TruncateForLog(markdown));
-
-        var draftJson = await GenerateDraftExtractionAsync(markdown, cancellationToken);
-        var reviewedJson = await ReviewDraftExtractionAsync(markdown, draftJson, cancellationToken);
-
-        if (!TryParseExtractionResult(reviewedJson, out var extractionResult, out var validationError))
+        if (pdfStream.CanSeek)
         {
-            logger.LogWarning(
-                "Reviewed extraction output was invalid. Retrying once. Error: {Error}",
-                validationError);
-
-            reviewedJson = await RepairExtractionAsync(markdown, draftJson, reviewedJson, validationError!, cancellationToken);
-
-            if (!TryParseExtractionResult(reviewedJson, out extractionResult, out validationError))
-            {
-                throw new InvalidOperationException($"LLM extraction returned invalid JSON: {validationError}");
-            }
+            pdfStream.Position = 0;
         }
 
-        var expectedTotal = extractionResult!.StatementTotal;
-        if (expectedTotal.HasValue)
-        {
-            var reviewedTotal = decimal.Round(extractionResult!.Expenses!.Sum(x => x.Amount), 2, MidpointRounding.AwayFromZero);
-            var expectedRounded = decimal.Round(expectedTotal.Value, 2, MidpointRounding.AwayFromZero);
-
-            if (reviewedTotal != expectedRounded)
-            {
-                logger.LogWarning(
-                    "Expense total mismatch after review. ExpectedTotal={ExpectedTotal} ReviewedTotal={ReviewedTotal}. Running one reconciliation pass.",
-                    expectedRounded,
-                    reviewedTotal);
-
-                reviewedJson = await ReconcileTotalMismatchAsync(
-                    markdown,
-                    draftJson,
-                    reviewedJson,
-                    expectedRounded,
-                    reviewedTotal,
-                    cancellationToken);
-
-                if (!TryParseExtractionResult(reviewedJson, out extractionResult, out validationError))
-                {
-                    throw new InvalidOperationException($"LLM reconciliation returned invalid JSON: {validationError}");
-                }
-
-                var reconciledTotal = decimal.Round(extractionResult!.Expenses!.Sum(x => x.Amount), 2, MidpointRounding.AwayFromZero);
-                if (reconciledTotal != expectedRounded)
-                {
-                    throw new InvalidOperationException(
-                        $"LLM extraction total mismatch. Expected {expectedRounded:0.00} but got {reconciledTotal:0.00}.");
-                }
-            }
-        }
-
-        return MapExtractionResult(extractionResult!);
+        using var memoryStream = new MemoryStream();
+        await pdfStream.CopyToAsync(memoryStream, cancellationToken);
+        return memoryStream.ToArray();
     }
 
-    private async Task<string?> ExtractTextFromPdfAsync(Stream pdfStream, CancellationToken cancellationToken)
+    private async Task<ParsedExpenseStatement?> ExtractFromPdfWithOpenRouterAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
         try
         {
-            if (pdfStream.CanSeek)
+            logger.LogInformation(
+                "Starting primary expense extraction via OpenRouter PDF. PdfSizeBytes={PdfSizeBytes}",
+                pdfBytes.Length);
+
+            var extractionJson = await RequestStructuredExpenseExtractionFromPdfAsync(pdfBytes, cancellationToken);
+            if (!TryParseExtractionResult(extractionJson, out var extractionResult, out var validationError))
             {
-                pdfStream.Position = 0;
-            }
-
-            using var multipartContent = new MultipartFormDataContent();
-            using var fileContent = new StreamContent(pdfStream);
-            multipartContent.Add(fileContent, "file", "statement.pdf");
-
-            using var httpClient = httpClientFactory.CreateClient(BotServiceRegistration.MarkitdownHttpClientName);
-            using var response = await httpClient.PostAsync("/convert", multipartContent, cancellationToken);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Markitdown request failed with status code {StatusCode}.", response.StatusCode);
+                logger.LogWarning(
+                    "OpenRouter PDF extraction returned invalid JSON. Error={Error} ResponsePreview={ResponsePreview}",
+                    validationError,
+                    TruncateForLog(extractionJson));
                 return null;
             }
 
-            var payload = await response.Content.ReadFromJsonAsync<MarkitdownConvertResponse>(cancellationToken: cancellationToken);
-            if (string.IsNullOrWhiteSpace(payload?.Markdown))
+            if (extractionResult!.StatementTotal.HasValue)
             {
-                logger.LogWarning("Markitdown response did not contain markdown content.");
-                return null;
+                var statementTotal = decimal.Round(extractionResult.StatementTotal.Value, 2, MidpointRounding.AwayFromZero);
+                var extractedTotal = decimal.Round(extractionResult.Expenses!.Sum(x => x.Amount), 2, MidpointRounding.AwayFromZero);
+
+                if (statementTotal != extractedTotal)
+                {
+                    logger.LogWarning(
+                        "OpenRouter PDF extraction total mismatch. StatementTotal={StatementTotal} ExtractedTotal={ExtractedTotal}.",
+                        statementTotal,
+                        extractedTotal);
+                    return null;
+                }
             }
 
-            return payload.Markdown;
+            return MapExtractionResult(extractionResult);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error extracting text from PDF via Markitdown.");
+            logger.LogWarning(ex, "OpenRouter PDF extraction failed.");
             return null;
         }
     }
 
-    private async Task<string> GenerateDraftExtractionAsync(string markdown, CancellationToken cancellationToken)
+    private async Task<string> RequestStructuredExpenseExtractionFromPdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
-        var responseText = await RunChatPromptAsync(
-            BuildDraftExtractionInstructions(),
-            BuildDraftExtractionInput(markdown),
-            cancellationToken);
+        var pdfDataUrl = $"data:application/pdf;base64,{Convert.ToBase64String(pdfBytes)}";
 
-        var draftJson = ExtractJsonObject(responseText) ?? responseText.Trim();
-        logger.LogInformation(
-            "Generated draft expense extraction. ResponsePreview={ResponsePreview} DraftPreview={DraftPreview}",
-            TruncateForLog(responseText),
-            TruncateForLog(draftJson));
-
-        return draftJson;
-    }
-
-    private async Task<string> ReviewDraftExtractionAsync(string markdown, string draftJson, CancellationToken cancellationToken)
-    {
-        var responseText = await RunChatPromptAsync(
-            BuildReviewInstructions(),
-            BuildReviewInput(markdown, draftJson),
-            cancellationToken);
-
-        var reviewedJson = ExtractJsonObject(responseText) ?? responseText.Trim();
-        logger.LogInformation(
-            "Reviewed draft expense extraction. ResponsePreview={ResponsePreview} ReviewedPreview={ReviewedPreview}",
-            TruncateForLog(responseText),
-            TruncateForLog(reviewedJson));
-
-        return reviewedJson;
-    }
-
-    private async Task<string> RepairExtractionAsync(
-        string markdown,
-        string draftJson,
-        string reviewedJson,
-        string validationError,
-        CancellationToken cancellationToken)
-    {
-        var responseText = await RunChatPromptAsync(
-            BuildRepairInstructions(),
-            BuildRepairInput(markdown, draftJson, reviewedJson, validationError),
-            cancellationToken);
-
-        var repairedJson = ExtractJsonObject(responseText) ?? responseText.Trim();
-        logger.LogInformation(
-            "Repaired expense extraction. ValidationError={ValidationError} ResponsePreview={ResponsePreview} RepairedPreview={RepairedPreview}",
-            validationError,
-            TruncateForLog(responseText),
-            TruncateForLog(repairedJson));
-
-        return repairedJson;
-    }
-
-    private async Task<string> ReconcileTotalMismatchAsync(
-        string markdown,
-        string draftJson,
-        string reviewedJson,
-        decimal expectedTotal,
-        decimal actualTotal,
-        CancellationToken cancellationToken)
-    {
-        var responseText = await RunChatPromptAsync(
-            BuildTotalReconciliationInstructions(),
-            BuildTotalReconciliationInput(markdown, draftJson, reviewedJson, expectedTotal, actualTotal),
-            cancellationToken);
-
-        var reconciledJson = ExtractJsonObject(responseText) ?? responseText.Trim();
-        logger.LogInformation(
-            "Reconciled expense extraction total mismatch. ExpectedTotal={ExpectedTotal} ActualTotal={ActualTotal} ResponsePreview={ResponsePreview} ReconciledPreview={ReconciledPreview}",
-            expectedTotal,
-            actualTotal,
-            TruncateForLog(responseText),
-            TruncateForLog(reconciledJson));
-
-        return reconciledJson;
-    }
-
-    private async Task<string> RunChatPromptAsync(string systemInstructions, string userInput, CancellationToken cancellationToken)
-    {
-        var chatClient = _aiOptions
-            .CreateOpenAiClient()
-            .GetChatClient(_aiOptions.Model)
-            .AsIChatClient();
-
-        var response = await chatClient.GetResponseAsync(
-            [
-                new ChatMessage(ChatRole.System, systemInstructions),
-                new ChatMessage(ChatRole.User, userInput)
-            ],
-            new ChatOptions
-            {
-                Temperature = 0
-            },
-            cancellationToken);
-
-        if (string.IsNullOrWhiteSpace(response.Text))
+        using var client = httpClientFactory.CreateClient(BotServiceRegistration.OpenRouterHttpClientName);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
         {
-            throw new InvalidOperationException("AI extraction returned empty content.");
+            Content = JsonContent.Create(new
+            {
+                model = _aiOptions.Model,
+                messages = new object[]
+                {
+                    new
+                    {
+                        role = "system",
+                        content = BuildDraftExtractionInstructions()
+                    },
+                    new
+                    {
+                        role = "user",
+                        content = new object[]
+                        {
+                            new
+                            {
+                                type = "text",
+                                text = BuildOpenRouterPdfUserPrompt()
+                            },
+                            new
+                            {
+                                type = "file",
+                                file = new
+                                {
+                                    filename = "statement.pdf",
+                                    file_data = pdfDataUrl
+                                }
+                            }
+                        }
+                    }
+                },
+                plugins = new object[]
+                {
+                    new
+                    {
+                        id = "file-parser",
+                        pdf = new
+                        {
+                            engine = "native"
+                        }
+                    }
+                },
+                response_format = new
+                {
+                    type = "json_schema",
+                    json_schema = new
+                    {
+                        name = "expense_statement_extraction",
+                        strict = true,
+                        schema = BuildExpenseExtractionSchema()
+                    }
+                },
+                temperature = 0
+            })
+        };
+
+        using var response = await client.SendAsync(request, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"OpenRouter PDF request failed with status {(int)response.StatusCode}: {TruncateForLog(errorBody)}");
         }
 
-        return response.Text.Trim();
+        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var jsonDocument = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
+        var messageContent = ExtractOpenRouterMessageContent(jsonDocument.RootElement)?.Trim();
+
+        if (string.IsNullOrWhiteSpace(messageContent))
+        {
+            throw new InvalidOperationException("OpenRouter PDF request returned empty content.");
+        }
+
+        logger.LogInformation(
+            "OpenRouter PDF extraction completed. ResponsePreview={ResponsePreview}",
+            TruncateForLog(messageContent));
+
+        return messageContent;
     }
 
     private async Task<List<ExpenseModel>> SaveParsedExpensesAsync(
@@ -511,124 +456,12 @@ public class ExpenseAnalysisService(
                """;
     }
 
-    private static string BuildDraftExtractionInput(string markdown)
-    {
-        return $$"""
-                 Extract all spending transactions from this statement markdown.
-                 Think carefully about installment rows, inline rows, and markdown table rows.
-
-                 Markdown:
-                 {{markdown}}
-                 """;
-    }
-
-    private static string BuildReviewInstructions()
+    private static string BuildOpenRouterPdfUserPrompt()
     {
         return """
-               You are reviewing a draft expense extraction against statement markdown.
-               Return corrected JSON only, using the same schema.
-
-               Review checklist:
-               - Add any missing spending rows.
-               - Remove rows that are not real spending.
-               - Fix dates, descriptions, currencies, and amounts.
-               - Check installment lines and mixed markdown table / inline formats carefully.
-               - Re-evaluate `statement_total`. It must be the explicit total visible in the statement that corresponds to the extracted expenses, or null if not trustworthy.
-               - Self-check the extracted total against `statement_total` when available.
-               - Keep repeated legitimate rows as separate expenses when the statement lists them multiple times.
-               - Do not invent rows that cannot be justified from the markdown.
-               - Return JSON only. No markdown fences. No commentary.
+               Extract all spending transactions from this statement.
+               Think carefully about installment rows, inline rows, and markdown table rows.
                """;
-    }
-
-    private static string BuildReviewInput(string markdown, string draftJson)
-    {
-        return $$"""
-                 Statement markdown:
-                 {{markdown}}
-
-                 Draft extraction JSON:
-                 {{draftJson}}
-                 """;
-    }
-
-    private static string BuildRepairInstructions()
-    {
-        return """
-               Repair an expense extraction JSON so it becomes valid and complete.
-               Return corrected JSON only, using the same schema.
-
-               Requirements:
-               - currency must be present
-               - statement_total may be null, otherwise it must be a positive number
-               - expenses must be a non-empty array
-               - each expense must have ISO date, non-empty description, positive amount, and currency
-               - repeated same-day same-description same-amount expenses are allowed if they appear separately in the statement
-               - remove invalid rows, fix obvious formatting issues, and add clearly missing spending rows when needed
-               - return JSON only
-               """;
-    }
-
-    private static string BuildTotalReconciliationInstructions()
-    {
-        return """
-               You are reconciling an expense extraction JSON against the statement markdown.
-               Return corrected JSON only, using the same schema.
-
-               Your job:
-               - The statement indicates an expected total spending amount.
-               - The current extracted expenses do not match that total.
-               - Find the most likely missing, misread, duplicate, or mis-amounted spending rows.
-               - Prefer fixing the smallest number of rows needed to make the total match.
-               - Repeated identical-looking rows may all be valid transactions; do not collapse them unless the statement clearly shows they are duplicates created by formatting noise.
-               - Do not add rows that cannot be justified from the markdown.
-               - Exclude non-spending items such as payments, carry-over balances, rewards, and summary lines.
-               - Return JSON only. No markdown fences. No commentary.
-               """;
-    }
-
-    private static string BuildRepairInput(
-        string markdown,
-        string draftJson,
-        string reviewedJson,
-        string validationError)
-    {
-        return $$"""
-                 Validation error:
-                 {{validationError}}
-
-                 Statement markdown:
-                 {{markdown}}
-
-                 Original draft JSON:
-                 {{draftJson}}
-
-                 Reviewed JSON:
-                 {{reviewedJson}}
-                 """;
-    }
-
-    private static string BuildTotalReconciliationInput(
-        string markdown,
-        string draftJson,
-        string reviewedJson,
-        decimal expectedTotal,
-        decimal actualTotal)
-    {
-        return $$"""
-                 Expected total spending from statement JSON: {{expectedTotal.ToString("0.00", CultureInfo.InvariantCulture)}}
-                 Current extracted total: {{actualTotal.ToString("0.00", CultureInfo.InvariantCulture)}}
-                 Difference: {{(expectedTotal - actualTotal).ToString("0.00", CultureInfo.InvariantCulture)}}
-
-                 Statement markdown:
-                 {{markdown}}
-
-                 Original draft JSON:
-                 {{draftJson}}
-
-                 Current reviewed JSON:
-                 {{reviewedJson}}
-                 """;
     }
 
     private static string? ExtractJsonObject(string rawText)
@@ -670,6 +503,114 @@ public class ExpenseAnalysisService(
         return Regex.Replace(value.ToUpperInvariant(), @"\s+", " ").Trim();
     }
 
+    private static object BuildExpenseExtractionSchema()
+    {
+        return new
+        {
+            type = "object",
+            additionalProperties = false,
+            properties = new
+            {
+                currency = new
+                {
+                    type = "string",
+                    description = "Statement currency code, for example TRY."
+                },
+                statement_total = new
+                {
+                    type = new[] { "number", "null" },
+                    description = "The explicit statement total relevant to the extracted expenses, or null if not trustworthy."
+                },
+                expenses = new
+                {
+                    type = "array",
+                    items = new
+                    {
+                        type = "object",
+                        additionalProperties = false,
+                        properties = new
+                        {
+                            date = new
+                            {
+                                type = "string",
+                                description = "Expense date in ISO format yyyy-MM-dd."
+                            },
+                            description = new
+                            {
+                                type = "string",
+                                description = "Merchant or transaction description."
+                            },
+                            amount = new
+                            {
+                                type = "number",
+                                description = "Positive expense amount."
+                            },
+                            currency = new
+                            {
+                                type = "string",
+                                description = "Expense currency code."
+                            }
+                        },
+                        required = new[] { "date", "description", "amount", "currency" }
+                    }
+                }
+            },
+            required = new[] { "currency", "statement_total", "expenses" }
+        };
+    }
+
+    private static string? ExtractOpenRouterMessageContent(JsonElement root)
+    {
+        if (!root.TryGetProperty("choices", out var choices)
+            || choices.ValueKind != JsonValueKind.Array
+            || choices.GetArrayLength() == 0)
+        {
+            return null;
+        }
+
+        var firstChoice = choices[0];
+        if (!firstChoice.TryGetProperty("message", out var message)
+            || !message.TryGetProperty("content", out var content))
+        {
+            return null;
+        }
+
+        return content.ValueKind switch
+        {
+            JsonValueKind.String => content.GetString(),
+            JsonValueKind.Array => string.Join(
+                "\n",
+                content.EnumerateArray()
+                    .Select(ExtractContentPartText)
+                    .Where(static text => !string.IsNullOrWhiteSpace(text))),
+            _ => null
+        };
+    }
+
+    private static string? ExtractContentPartText(JsonElement part)
+    {
+        if (part.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        if (part.TryGetProperty("text", out var directText) && directText.ValueKind == JsonValueKind.String)
+        {
+            return directText.GetString();
+        }
+
+        if (part.TryGetProperty("type", out var type)
+            && type.ValueKind == JsonValueKind.String
+            && string.Equals(type.GetString(), "text", StringComparison.OrdinalIgnoreCase)
+            && part.TryGetProperty("text", out var text)
+            && text.ValueKind == JsonValueKind.String)
+        {
+            return text.GetString();
+        }
+
+        return null;
+    }
+
     private static DateTime ToUtcDate(DateOnly date)
     {
         return DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
@@ -694,8 +635,6 @@ public class ExpenseAnalysisService(
         return normalized[..maxLength] + "\n...[truncated]";
     }
 }
-
-public sealed record MarkitdownConvertResponse(string? Filename, string? Markdown);
 
 public sealed record ExpenseExtractionItem(
     string? Date,
