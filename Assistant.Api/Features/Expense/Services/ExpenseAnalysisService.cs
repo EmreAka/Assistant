@@ -103,6 +103,41 @@ public class ExpenseAnalysisService(
             }
         }
 
+        var expectedTotal = extractionResult!.StatementTotal;
+        if (expectedTotal.HasValue)
+        {
+            var reviewedTotal = decimal.Round(extractionResult!.Expenses!.Sum(x => x.Amount), 2, MidpointRounding.AwayFromZero);
+            var expectedRounded = decimal.Round(expectedTotal.Value, 2, MidpointRounding.AwayFromZero);
+
+            if (reviewedTotal != expectedRounded)
+            {
+                logger.LogWarning(
+                    "Expense total mismatch after review. ExpectedTotal={ExpectedTotal} ReviewedTotal={ReviewedTotal}. Running one reconciliation pass.",
+                    expectedRounded,
+                    reviewedTotal);
+
+                reviewedJson = await ReconcileTotalMismatchAsync(
+                    markdown,
+                    draftJson,
+                    reviewedJson,
+                    expectedRounded,
+                    reviewedTotal,
+                    cancellationToken);
+
+                if (!TryParseExtractionResult(reviewedJson, out extractionResult, out validationError))
+                {
+                    throw new InvalidOperationException($"LLM reconciliation returned invalid JSON: {validationError}");
+                }
+
+                var reconciledTotal = decimal.Round(extractionResult!.Expenses!.Sum(x => x.Amount), 2, MidpointRounding.AwayFromZero);
+                if (reconciledTotal != expectedRounded)
+                {
+                    throw new InvalidOperationException(
+                        $"LLM extraction total mismatch. Expected {expectedRounded:0.00} but got {reconciledTotal:0.00}.");
+                }
+            }
+        }
+
         return MapExtractionResult(extractionResult!);
     }
 
@@ -196,6 +231,30 @@ public class ExpenseAnalysisService(
             TruncateForLog(repairedJson));
 
         return repairedJson;
+    }
+
+    private async Task<string> ReconcileTotalMismatchAsync(
+        string markdown,
+        string draftJson,
+        string reviewedJson,
+        decimal expectedTotal,
+        decimal actualTotal,
+        CancellationToken cancellationToken)
+    {
+        var responseText = await RunChatPromptAsync(
+            BuildTotalReconciliationInstructions(),
+            BuildTotalReconciliationInput(markdown, draftJson, reviewedJson, expectedTotal, actualTotal),
+            cancellationToken);
+
+        var reconciledJson = ExtractJsonObject(responseText) ?? responseText.Trim();
+        logger.LogInformation(
+            "Reconciled expense extraction total mismatch. ExpectedTotal={ExpectedTotal} ActualTotal={ActualTotal} ResponsePreview={ResponsePreview} ReconciledPreview={ReconciledPreview}",
+            expectedTotal,
+            actualTotal,
+            TruncateForLog(responseText),
+            TruncateForLog(reconciledJson));
+
+        return reconciledJson;
     }
 
     private async Task<string> RunChatPromptAsync(string systemInstructions, string userInput, CancellationToken cancellationToken)
@@ -333,6 +392,12 @@ public class ExpenseAnalysisService(
             return false;
         }
 
+        if (result.StatementTotal.HasValue && result.StatementTotal.Value <= 0)
+        {
+            error = "Statement total must be positive when provided.";
+            return false;
+        }
+
         var normalizedExpenses = new List<ExpenseExtractionItem>(result.Expenses.Count);
         var seenRows = new HashSet<string>(StringComparer.Ordinal);
 
@@ -428,6 +493,7 @@ public class ExpenseAnalysisService(
                Output schema:
                {
                  "currency": "TRY",
+                 "statement_total": 1234.56,
                  "expenses": [
                    {
                      "date": "YYYY-MM-DD",
@@ -440,6 +506,8 @@ public class ExpenseAnalysisService(
 
                Rules:
                - Include only real spending transactions.
+               - If the statement explicitly shows a billing-period or statement spending/borc total relevant to the extracted expenses, put it in `statement_total`.
+               - If no trustworthy total is visible, set `statement_total` to null.
                - Exclude payments, previous balance carry-over, rewards, bonuses, refunds, fees only if clearly not spending, card limits, statement totals, and summary rows.
                - Amounts must be positive.
                - Preserve merchant names, but normalize whitespace.
@@ -471,7 +539,8 @@ public class ExpenseAnalysisService(
                - Remove rows that are not real spending.
                - Fix dates, descriptions, currencies, and amounts.
                - Check installment lines and mixed markdown table / inline formats carefully.
-               - Self-check the extracted total against any visible statement spending totals or section totals when they are available.
+               - Re-evaluate `statement_total`. It must be the explicit total visible in the statement that corresponds to the extracted expenses, or null if not trustworthy.
+               - Self-check the extracted total against `statement_total` when available.
                - Do not invent rows that cannot be justified from the markdown.
                - Return JSON only. No markdown fences. No commentary.
                """;
@@ -496,10 +565,28 @@ public class ExpenseAnalysisService(
 
                Requirements:
                - currency must be present
+               - statement_total may be null, otherwise it must be a positive number
                - expenses must be a non-empty array
                - each expense must have ISO date, non-empty description, positive amount, and currency
-               - remove invalid rows, fix obvious formatting issues, and add clearly missing spending rows when needed
+                - remove invalid rows, fix obvious formatting issues, and add clearly missing spending rows when needed
                - return JSON only
+               """;
+    }
+
+    private static string BuildTotalReconciliationInstructions()
+    {
+        return """
+               You are reconciling an expense extraction JSON against the statement markdown.
+               Return corrected JSON only, using the same schema.
+
+               Your job:
+               - The statement indicates an expected total spending amount.
+               - The current extracted expenses do not match that total.
+               - Find the most likely missing, misread, duplicate, or mis-amounted spending rows.
+               - Prefer fixing the smallest number of rows needed to make the total match.
+               - Do not add rows that cannot be justified from the markdown.
+               - Exclude non-spending items such as payments, carry-over balances, rewards, and summary lines.
+               - Return JSON only. No markdown fences. No commentary.
                """;
     }
 
@@ -520,6 +607,29 @@ public class ExpenseAnalysisService(
                  {{draftJson}}
 
                  Reviewed JSON:
+                 {{reviewedJson}}
+                 """;
+    }
+
+    private static string BuildTotalReconciliationInput(
+        string markdown,
+        string draftJson,
+        string reviewedJson,
+        decimal expectedTotal,
+        decimal actualTotal)
+    {
+        return $$"""
+                 Expected total spending from statement JSON: {{expectedTotal.ToString("0.00", CultureInfo.InvariantCulture)}}
+                 Current extracted total: {{actualTotal.ToString("0.00", CultureInfo.InvariantCulture)}}
+                 Difference: {{(expectedTotal - actualTotal).ToString("0.00", CultureInfo.InvariantCulture)}}
+
+                 Statement markdown:
+                 {{markdown}}
+
+                 Original draft JSON:
+                 {{draftJson}}
+
+                 Current reviewed JSON:
                  {{reviewedJson}}
                  """;
     }
@@ -599,5 +709,6 @@ public sealed record ExpenseExtractionItem(
 
 public sealed record ExpenseExtractionResult(
     string? Currency,
+    decimal? StatementTotal,
     List<ExpenseExtractionItem>? Expenses
 );
