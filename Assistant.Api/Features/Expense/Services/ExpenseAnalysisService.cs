@@ -87,6 +87,11 @@ public class ExpenseAnalysisService(
 
     private async Task<ParsedExpenseStatement> ParseStatementWithMcpAsync(string markdown, CancellationToken cancellationToken)
     {
+        logger.LogInformation(
+            "Starting MCP expense extraction. MarkdownLength={MarkdownLength} MarkdownPreview={MarkdownPreview}",
+            markdown.Length,
+            TruncateForLog(markdown));
+
         var pythonCode = await GenerateExtractionPythonAsync(markdown, cancellationToken);
         var toolOutput = await ExecutePythonInSandboxAsync(pythonCode, cancellationToken);
 
@@ -167,7 +172,13 @@ public class ExpenseAnalysisService(
             },
             cancellationToken);
 
-        return ExtractPythonCode(response.Text);
+        var pythonCode = ExtractPythonCode(response.Text);
+        logger.LogInformation(
+            "Generated expense extraction Python. ResponsePreview={ResponsePreview} PythonPreview={PythonPreview}",
+            TruncateForLog(response.Text),
+            TruncateForLog(pythonCode));
+
+        return pythonCode;
     }
 
     private async Task<string> RepairExtractionPythonAsync(
@@ -196,11 +207,26 @@ public class ExpenseAnalysisService(
             },
             cancellationToken);
 
-        return ExtractPythonCode(response.Text);
+        var repairedPythonCode = ExtractPythonCode(response.Text);
+        logger.LogInformation(
+            "Repaired expense extraction Python. ValidationError={ValidationError} ResponsePreview={ResponsePreview} PythonPreview={PythonPreview}",
+            validationError,
+            TruncateForLog(response.Text),
+            TruncateForLog(repairedPythonCode));
+
+        return repairedPythonCode;
     }
 
     private async Task<string> ExecutePythonInSandboxAsync(string pythonCode, CancellationToken cancellationToken)
     {
+        logger.LogInformation(
+            "Executing Python in MCP sandbox. Command={Command} Arguments={Arguments} ContainerImage={ContainerImage} ContainerLanguage={ContainerLanguage} PythonPreview={PythonPreview}",
+            _codeSandboxOptions.Command,
+            string.Join(" ", _codeSandboxOptions.Arguments),
+            _codeSandboxOptions.ContainerImage,
+            _codeSandboxOptions.ContainerLanguage,
+            TruncateForLog(pythonCode));
+
         var transport = new StdioClientTransport(new StdioClientTransportOptions
         {
             Name = "code-sandbox-mcp",
@@ -226,7 +252,13 @@ public class ExpenseAnalysisService(
             },
             cancellationToken: cancellationToken);
 
-        return ExtractToolText(result);
+        var toolOutput = ExtractToolText(result);
+        logger.LogInformation(
+            "Received MCP sandbox response. IsError={IsError} OutputPreview={OutputPreview}",
+            result.IsError ?? false,
+            TruncateForLog(toolOutput));
+
+        return toolOutput;
     }
 
     private async Task<List<ExpenseModel>> SaveParsedExpensesAsync(
@@ -576,6 +608,25 @@ public class ExpenseAnalysisService(
     private static DateTime ToUtcDate(DateOnly date)
     {
         return DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
+    }
+
+    private static string TruncateForLog(string? value, int maxLength = 4000)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var normalized = value
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n');
+
+        if (normalized.Length <= maxLength)
+        {
+            return normalized;
+        }
+
+        return normalized[..maxLength] + "\n...[truncated]";
     }
 }
 
