@@ -325,7 +325,7 @@ public class ExpenseAnalysisService(
             return false;
         }
 
-        if (result.Expenses.Count == 0)
+        if (result.Expenses is null || result.Expenses.Count == 0)
         {
             error = "No expenses were returned.";
             return false;
@@ -341,6 +341,12 @@ public class ExpenseAnalysisService(
         var seenRows = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in result.Expenses)
         {
+            if (item is null)
+            {
+                error = "Expense item is null.";
+                return false;
+            }
+
             if (!DateOnly.TryParseExact(item.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
             {
                 error = $"Expense date is invalid: {item.Date}";
@@ -370,16 +376,18 @@ public class ExpenseAnalysisService(
             seenRows.Add(dedupeKey);
         }
 
+        var normalizedExpenses = result.Expenses
+            .Select(item => item with
+            {
+                Currency = NormalizeCurrency(item.Currency) ?? normalizedCurrency,
+                Description = Regex.Replace(item.Description!.Trim(), @"\s+", " ")
+            })
+            .ToList();
+
         result = result with
         {
             Currency = normalizedCurrency,
-            Expenses = result.Expenses
-                .Select(item => item with
-                {
-                    Currency = NormalizeCurrency(item.Currency) ?? normalizedCurrency,
-                    Description = Regex.Replace(item.Description.Trim(), @"\s+", " ")
-                })
-                .ToList()
+            Expenses = normalizedExpenses
         };
 
         return true;
@@ -387,12 +395,15 @@ public class ExpenseAnalysisService(
 
     private static ParsedExpenseStatement MapExtractionResult(SandboxExpenseExtractionResult result)
     {
-        var expenses = result.Expenses
+        var statementCurrency = result.Currency ?? throw new InvalidOperationException("Statement currency cannot be null after validation.");
+        var extractionItems = result.Expenses ?? throw new InvalidOperationException("Expenses cannot be null after validation.");
+
+        var expenses = extractionItems
             .Select(item => new StatementExpenseItem(
-                DateOnly.ParseExact(item.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture),
-                item.Description,
+                DateOnly.ParseExact(item.Date!, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                item.Description!,
                 item.Amount,
-                item.Currency ?? result.Currency))
+                item.Currency ?? statementCurrency))
             .OrderBy(item => item.Date)
             .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Price)
@@ -401,7 +412,7 @@ public class ExpenseAnalysisService(
         return new ParsedExpenseStatement(
             expenses,
             expenses.Sum(x => x.Price),
-            result.Currency);
+            statementCurrency);
     }
 
     private static string BuildPythonGenerationInstructions()
@@ -571,13 +582,13 @@ public class ExpenseAnalysisService(
 public sealed record MarkitdownConvertResponse(string? Filename, string? Markdown);
 
 public sealed record SandboxExpenseExtractionItem(
-    string Date,
-    string Description,
+    string? Date,
+    string? Description,
     decimal Amount,
     string? Currency
 );
 
 public sealed record SandboxExpenseExtractionResult(
-    string Currency,
-    List<SandboxExpenseExtractionItem> Expenses
+    string? Currency,
+    List<SandboxExpenseExtractionItem>? Expenses
 );
