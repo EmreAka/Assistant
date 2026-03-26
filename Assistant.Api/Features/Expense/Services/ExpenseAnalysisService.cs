@@ -403,7 +403,6 @@ public class ExpenseAnalysisService(
         }
 
         var normalizedExpenses = new List<ExpenseExtractionItem>(result.Expenses.Count);
-        var seenRows = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var item in result.Expenses)
         {
@@ -439,12 +438,6 @@ public class ExpenseAnalysisService(
             }
 
             var normalizedDescription = Regex.Replace(item.Description.Trim(), @"\s+", " ");
-            var dedupeKey = $"{item.Date}|{normalizedDescription}|{item.Amount.ToString("0.00", CultureInfo.InvariantCulture)}|{itemCurrency}";
-            if (!seenRows.Add(dedupeKey))
-            {
-                continue;
-            }
-
             normalizedExpenses.Add(item with
             {
                 Description = normalizedDescription,
@@ -516,6 +509,7 @@ public class ExpenseAnalysisService(
                - Amounts must be positive.
                - Preserve merchant names, but normalize whitespace.
                - Use the statement currency unless a transaction clearly shows another currency.
+               - Do not collapse repeated rows just because date, merchant, and amount are the same. If the statement lists the same spending row multiple times, keep each occurrence as a separate expense.
                - Prefer completeness over brevity: include every actual spending row you can justify from the markdown.
                - Return JSON only. No markdown fences. No commentary.
                """;
@@ -545,6 +539,7 @@ public class ExpenseAnalysisService(
                - Check installment lines and mixed markdown table / inline formats carefully.
                - Re-evaluate `statement_total`. It must be the explicit total visible in the statement that corresponds to the extracted expenses, or null if not trustworthy.
                - Self-check the extracted total against `statement_total` when available.
+               - Keep repeated legitimate rows as separate expenses when the statement lists them multiple times.
                - Do not invent rows that cannot be justified from the markdown.
                - Return JSON only. No markdown fences. No commentary.
                """;
@@ -572,7 +567,8 @@ public class ExpenseAnalysisService(
                - statement_total may be null, otherwise it must be a positive number
                - expenses must be a non-empty array
                - each expense must have ISO date, non-empty description, positive amount, and currency
-                - remove invalid rows, fix obvious formatting issues, and add clearly missing spending rows when needed
+               - repeated same-day same-description same-amount expenses are allowed if they appear separately in the statement
+               - remove invalid rows, fix obvious formatting issues, and add clearly missing spending rows when needed
                - return JSON only
                """;
     }
@@ -588,6 +584,7 @@ public class ExpenseAnalysisService(
                - The current extracted expenses do not match that total.
                - Find the most likely missing, misread, duplicate, or mis-amounted spending rows.
                - Prefer fixing the smallest number of rows needed to make the total match.
+               - Repeated identical-looking rows may all be valid transactions; do not collapse them unless the statement clearly shows they are duplicates created by formatting noise.
                - Do not add rows that cannot be justified from the markdown.
                - Exclude non-spending items such as payments, carry-over balances, rewards, and summary lines.
                - Return JSON only. No markdown fences. No commentary.
