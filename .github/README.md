@@ -37,7 +37,7 @@ Example:
 Expense flow:
 - Run `/expense` in a private chat to see the currently saved total expense amount.
 - Upload a credit card statement PDF with the `/expense` command caption to trigger analysis.
-- The bot extracts statement text through Markitdown, asks the model to generate a Python extractor, executes that extractor in the Code Sandbox MCP server, validates the returned JSON, and saves normalized transactions to the `Expenses` table.
+- The bot sends the uploaded PDF to the OpenRouter file parser flow, validates the returned structured JSON, and saves normalized transactions to the `Expenses` table.
 
 TEFAS flow:
 - Run `/tefas <FUND_CODE>` such as `/tefas AFT`.
@@ -71,7 +71,7 @@ Implementation notes:
 - `ExpenseCommand`
   - Returns the user's current expense total or handles statement PDF uploads for automated expense registration.
 - `ExpenseAnalysisService`
-  - Sends uploaded PDFs to Markitdown for text extraction, generates statement-specific Python parsing code, runs it in the Code Sandbox MCP server, validates the JSON output, and persists normalized expense transactions.
+  - Sends uploaded PDFs to OpenRouter for structured PDF extraction, validates the JSON output, and persists normalized expense transactions.
 - `TefasCommand`
   - Accepts `/tefas <code>`, validates the input, invokes the TEFAS analysis service, and sends the response back to Telegram.
 - `TefasAnalysisService`
@@ -98,9 +98,6 @@ Implementation notes:
 - .NET 10 SDK
 - A Telegram bot token
 - An OpenRouter API key
-- A Markitdown service endpoint for PDF-to-markdown conversion
-- A local `code-sandbox-mcp` executable reachable by the API process
-- Docker available to that process for launching `philschmi/code-sandbox-python:latest`
 - Outbound access to `https://openrouter.ai/api/v1`
 - Outbound access to `https://www.tefas.gov.tr/` for live fund scraping
 - A webhook URL reachable by Telegram
@@ -122,15 +119,6 @@ Set the `Bot` and `AI` sections in `Assistant.Api/appsettings.Development.json`:
     "ApiUrl": "https://openrouter.ai/api/v1",
     "Model": "google/gemini-3.1-flash-lite-preview",
     "DefaultTimeZoneId": "Europe/Istanbul"
-  },
-  "CodeSandboxMcp": {
-    "Command": "code-sandbox-mcp",
-    "Arguments": [],
-    "ContainerImage": "philschmi/code-sandbox-python:latest",
-    "ContainerLanguage": "python"
-  },
-  "Markitdown": {
-    "Endpoint": "YOUR_MARKITDOWN_ENDPOINT"
   }
 }
 ```
