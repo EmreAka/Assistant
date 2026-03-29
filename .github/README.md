@@ -79,7 +79,7 @@ Implementation notes:
 - `TefasHtmlParser`
   - Uses DOM parsing plus targeted extraction of embedded chart data to turn the TEFAS HTML page into a structured fund snapshot.
 - `WebSearchToolFunctions`
-  - Executes OpenRouter-backed web searches for fresh public information and returns a concise grounded summary back to the chat agent.
+  - Executes Google AI Studio-backed web searches for fresh public information and returns a concise grounded summary back to the chat agent.
 - `TelegramResponseSender`
   - Centralizes long Telegram message splitting and Markdown fallback handling for agent-style responses.
 
@@ -98,13 +98,14 @@ Implementation notes:
 - .NET 10 SDK
 - A Telegram bot token
 - An OpenRouter API key
+- A Google AI Studio API key
 - Outbound access to `https://openrouter.ai/api/v1`
 - Outbound access to `https://www.tefas.gov.tr/` for live fund scraping
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
 
 ### Configuration
-Set the `Bot` and `AI` sections in `Assistant.Api/appsettings.Development.json`:
+Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Development.json`:
 
 ```json
 {
@@ -114,14 +115,25 @@ Set the `Bot` and `AI` sections in `Assistant.Api/appsettings.Development.json`:
     "SecretToken": "YOUR_SECRET_TOKEN",
     "AllowedChatIds": []
   },
-  "AI": {
-    "ApiKey": "YOUR_OPENROUTER_API_KEY",
-    "ApiUrl": "https://openrouter.ai/api/v1",
-    "Model": "google/gemini-3.1-flash-lite-preview",
+  "AIProviders": {
+    "OpenRouter": {
+      "ApiKey": "YOUR_OPENROUTER_API_KEY",
+      "ApiUrl": "https://openrouter.ai/api/v1",
+      "Model": "google/gemini-3.1-flash-lite-preview"
+    },
+    "GoogleAIStudio": {
+      "ApiKey": "YOUR_GOOGLE_AI_STUDIO_API_KEY",
+      "Model": "gemini-3.1-flash-lite-preview"
+    },
     "DefaultTimeZoneId": "Europe/Istanbul"
   }
 }
 ```
+
+Provider notes:
+- `AIProviders:OpenRouter` is the currently active provider path for chat completions and PDF-based expense extraction.
+- `AIProviders:GoogleAIStudio` is the currently active provider path for live web search.
+- `AIProviders:DefaultTimeZoneId` is shared by time-sensitive chat and scheduling features.
 
 Also configure database connection strings in the same file:
 

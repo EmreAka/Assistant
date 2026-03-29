@@ -1,15 +1,13 @@
 using System.ComponentModel;
-using System.Net.Http.Json;
-using System.Text.Json;
 using Assistant.Api.Domain.Configurations;
-using Assistant.Api.Extensions;
+using Google.GenAI;
+using Google.GenAI.Types;
 using Microsoft.Extensions.Options;
 
 namespace Assistant.Api.Features.Chat.Services;
 
 public class WebSearchToolFunctions(
-    IHttpClientFactory httpClientFactory,
-    IOptions<AiOptions> aiOptions,
+    IOptions<AiProvidersOptions> aiProvidersOptions,
     ILogger<WebSearchToolFunctions> logger
 )
 {
@@ -24,47 +22,25 @@ public class WebSearchToolFunctions(
 
         try
         {
-            using var client = httpClientFactory.CreateClient(BotServiceRegistration.OpenRouterHttpClientName);
-            using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
-            {
-                Content = JsonContent.Create(new
+            var options = aiProvidersOptions.Value.GoogleAIStudio;
+            var client = new Client(apiKey: options.ApiKey);
+
+            var response = await client.Models.GenerateContentAsync(
+                model: options.Model,
+                contents: BuildSearchPrompt(query),
+                config: new GenerateContentConfig
                 {
-                    model = aiOptions.Value.Model,
-                    messages = new[]
-                    {
-                        new
+                    Temperature = 0.2f,
+                    Tools =
+                    [
+                        new Tool
                         {
-                            role = "user",
-                            content = BuildSearchPrompt(query)
+                            GoogleSearch = new GoogleSearch()
                         }
-                    },
-                    plugins = new[]
-                    {
-                        new
-                        {
-                            id = "web",
-                            /* engine = "native", */
-                            max_results = 1
-                        }
-                    },
-                    temperature = 0.2
-                })
-            };
+                    ]
+                });
 
-            using var response = await client.SendAsync(request);
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning(
-                    "SearchWeb failed with status code {StatusCode} for query: {Query}",
-                    response.StatusCode,
-                    query);
-                return "Web search failed. Continue without fresh web results unless the user asks you to try again.";
-            }
-
-            await using var responseStream = await response.Content.ReadAsStreamAsync();
-            using var jsonDocument = await JsonDocument.ParseAsync(responseStream);
-            var result = ExtractMessageContent(jsonDocument.RootElement)?.Trim();
-
+            var result = response.Text?.Trim();
             if (string.IsNullOrWhiteSpace(result))
             {
                 logger.LogInformation("SearchWeb returned no text for query: {Query}", query);
@@ -92,57 +68,5 @@ public class WebSearchToolFunctions(
 
                  Query: {{query}}
                  """;
-    }
-
-    private static string? ExtractMessageContent(JsonElement root)
-    {
-        if (!root.TryGetProperty("choices", out var choices)
-            || choices.ValueKind != JsonValueKind.Array
-            || choices.GetArrayLength() == 0)
-        {
-            return null;
-        }
-
-        var firstChoice = choices[0];
-        if (!firstChoice.TryGetProperty("message", out var message)
-            || !message.TryGetProperty("content", out var content))
-        {
-            return null;
-        }
-
-        return content.ValueKind switch
-        {
-            JsonValueKind.String => content.GetString(),
-            JsonValueKind.Array => string.Join(
-                "\n",
-                content.EnumerateArray()
-                    .Select(ExtractContentPartText)
-                    .Where(static text => !string.IsNullOrWhiteSpace(text))),
-            _ => null
-        };
-    }
-
-    private static string? ExtractContentPartText(JsonElement part)
-    {
-        if (part.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (part.TryGetProperty("text", out var directText) && directText.ValueKind == JsonValueKind.String)
-        {
-            return directText.GetString();
-        }
-
-        if (part.TryGetProperty("type", out var type)
-            && type.ValueKind == JsonValueKind.String
-            && string.Equals(type.GetString(), "text", StringComparison.OrdinalIgnoreCase)
-            && part.TryGetProperty("text", out var text)
-            && text.ValueKind == JsonValueKind.String)
-        {
-            return text.GetString();
-        }
-
-        return null;
     }
 }

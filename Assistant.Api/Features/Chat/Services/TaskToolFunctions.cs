@@ -13,7 +13,7 @@ public class TaskToolFunctions(
     ApplicationDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
     IRecurringJobManager recurringJobManager,
-    IOptions<AiOptions> aiOptions,
+    IOptions<AiProvidersOptions> aiOptions,
     ILogger<TaskToolFunctions> logger
 )
 {

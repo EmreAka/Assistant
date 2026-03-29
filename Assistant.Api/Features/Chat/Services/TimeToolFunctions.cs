@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 namespace Assistant.Api.Features.Chat.Services;
 
 public class TimeToolFunctions(
-    IOptions<AiOptions> aiOptions
+    IOptions<AiProvidersOptions> aiOptions
 )
 {
     [Description("Returns the current local date and time. Use this when you need to resolve relative time expressions like 'tomorrow', 'next week', or 'in 2 hours'.")]

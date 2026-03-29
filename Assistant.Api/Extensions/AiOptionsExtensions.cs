@@ -6,23 +6,23 @@ namespace Assistant.Api.Extensions;
 
 public static class AiOptionsExtensions
 {
-    public static OpenAIClient CreateOpenAiClient(this AiOptions options)
+    public static OpenAIClient CreateOpenAiClient(this OpenRouterOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
         if (string.IsNullOrWhiteSpace(options.ApiKey))
         {
-            throw new InvalidOperationException("AI:ApiKey is not configured.");
+            throw new InvalidOperationException("AIProviders:OpenRouter:ApiKey is not configured.");
         }
 
         if (string.IsNullOrWhiteSpace(options.ApiUrl))
         {
-            throw new InvalidOperationException("AI:ApiUrl is not configured.");
+            throw new InvalidOperationException("AIProviders:OpenRouter:ApiUrl is not configured.");
         }
 
         if (string.IsNullOrWhiteSpace(options.Model))
         {
-            throw new InvalidOperationException("AI:Model is not configured.");
+            throw new InvalidOperationException("AIProviders:OpenRouter:Model is not configured.");
         }
 
         return new OpenAIClient(

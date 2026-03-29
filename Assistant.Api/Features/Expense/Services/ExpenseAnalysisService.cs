@@ -15,7 +15,7 @@ namespace Assistant.Api.Features.Expense.Services;
 public class ExpenseAnalysisService(
     IHttpClientFactory httpClientFactory,
     ApplicationDbContext dbContext,
-    IOptions<AiOptions> aiOptions,
+    IOptions<AiProvidersOptions> aiOptions,
     ILogger<ExpenseAnalysisService> logger
 ) : IExpenseAnalysisService
 {
@@ -25,7 +25,7 @@ public class ExpenseAnalysisService(
         PropertyNameCaseInsensitive = true
     };
 
-    private readonly AiOptions _aiOptions = aiOptions.Value;
+    private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
 
     public async Task<ExpenseAnalysisResponse> AnalyzeStatementAsync(Stream pdfStream, long chatId, int userId, CancellationToken cancellationToken)
     {
@@ -148,7 +148,7 @@ public class ExpenseAnalysisService(
         {
             Content = JsonContent.Create(new
             {
-                model = _aiOptions.Model,
+                model = _aiOptions.OpenRouter.Model,
                 messages = new object[]
                 {
                     new

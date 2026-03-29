@@ -17,8 +17,7 @@ public class AgentService(
     ApplicationDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
     IRecurringJobManager recurringJobManager,
-    IHttpClientFactory httpClientFactory,
-    IOptions<AiOptions> aiOptions,
+    IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<MemoryToolFunctions> memoryToolLogger,
     ILogger<TaskToolFunctions> taskToolLogger,
@@ -26,7 +25,7 @@ public class AgentService(
     ILogger<ExpenseQueryToolFunctions> expenseToolLogger
 ) : IAgentService
 {
-    private readonly AiOptions _aiOptions = aiOptions.Value;
+    private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
     private static readonly ConcurrentDictionary<long, AgentSession> Sessions = new();
 
     public async Task<string> RunAsync(
@@ -41,7 +40,7 @@ public class AgentService(
             var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
-            var webSearchToolFunctions = new WebSearchToolFunctions(httpClientFactory, aiOptions, webSearchToolLogger);
+            var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
             var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
 
             var tools = new List<AITool>
@@ -59,8 +58,9 @@ public class AgentService(
             }
             
             var chatClient = _aiOptions
+                .OpenRouter
                 .CreateOpenAiClient()
-                .GetChatClient(_aiOptions.Model)
+                .GetChatClient(_aiOptions.OpenRouter.Model)
                 .AsIChatClient()
                 .AsBuilder()
                 .UseFunctionInvocation()
@@ -76,7 +76,7 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        ModelId = _aiOptions.Model,
+                        ModelId = _aiOptions.OpenRouter.Model,
                         Tools = tools
                     },
                     AIContextProviders =

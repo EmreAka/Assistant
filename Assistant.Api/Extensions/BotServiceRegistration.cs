@@ -25,22 +25,12 @@ public static class BotServiceRegistration
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.Configure<AiOptions>(configuration.GetSection("AI"));
+        services.Configure<AiProvidersOptions>(configuration.GetSection("AIProviders"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
-        services.Configure<MarkitdownOptions>(configuration.GetSection("Markitdown"));
 
-        services.AddHttpClient(MarkitdownHttpClientName, (provider, client) =>
-        {
-            var options = provider.GetRequiredService<IOptions<MarkitdownOptions>>().Value;
-
-            if (!string.IsNullOrWhiteSpace(options.Endpoint))
-            {
-                client.BaseAddress = new Uri(options.Endpoint);
-            }
-        });
         services.AddHttpClient(OpenRouterHttpClientName, (provider, client) =>
         {
-            var options = provider.GetRequiredService<IOptions<AiOptions>>().Value;
+            var options = provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter;
 
             if (!string.IsNullOrWhiteSpace(options.ApiUrl))
             {
