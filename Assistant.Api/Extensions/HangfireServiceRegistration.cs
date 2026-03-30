@@ -21,7 +21,6 @@ public static class HangfireServiceRegistration
 
         services.AddHangfireServer();
         services.AddScoped<CommandUpdateJob>();
-        services.AddScoped<WorkdayEndReminderJob>();
 
         return services;
     }
