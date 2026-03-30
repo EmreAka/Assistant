@@ -5,15 +5,15 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
-using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
+using Google.GenAI;
+using Google.GenAI.Types;
 
 namespace Assistant.Api.Features.Expense.Services;
 
 public class ExpenseAnalysisService(
-    IHttpClientFactory httpClientFactory,
     ApplicationDbContext dbContext,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<ExpenseAnalysisService> logger
@@ -24,6 +24,65 @@ public class ExpenseAnalysisService(
     {
         PropertyNameCaseInsensitive = true
     };
+    private static readonly Schema ExpenseExtractionSchema = JsonSerializer.Deserialize<Schema>(
+        """
+        {
+          "type": "object",
+          "properties": {
+            "currency": {
+              "type": "string",
+              "description": "Statement currency code, for example TRY."
+            },
+            "statement_total": {
+              "type": "number",
+              "nullable": true,
+              "description": "The explicit statement total relevant to the extracted expenses, or null if not trustworthy."
+            },
+            "expenses": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Expense date in ISO format yyyy-MM-dd."
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Merchant or transaction description."
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "Positive expense amount."
+                  },
+                  "currency": {
+                    "type": "string",
+                    "description": "Expense currency code."
+                  },
+                  "category": {
+                    "type": "string",
+                    "description": "Expense category from the fixed list: Food & Dining, Transportation, Shopping, Entertainment, Travel, Health & Pharmacy, Subscriptions & Software, Utilities & Bills, Education, Other."
+                  }
+                },
+                "required": [
+                  "date",
+                  "description",
+                  "amount",
+                  "currency",
+                  "category"
+                ]
+              }
+            }
+          },
+          "required": [
+            "currency",
+            "statement_total",
+            "expenses"
+          ]
+        }
+        """,
+        JsonOptions) ?? throw new InvalidOperationException("Expense extraction schema could not be created.");
 
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
 
@@ -40,7 +99,7 @@ public class ExpenseAnalysisService(
                 return new ExpenseAnalysisResponse(false, "PDF dosyası okunamadı.");
             }
 
-            var parsedStatement = await ExtractFromPdfWithOpenRouterAsync(pdfBytes, cancellationToken);
+            var parsedStatement = await ExtractFromPdfWithGoogleGenAiAsync(pdfBytes, cancellationToken);
             if (parsedStatement is null)
             {
                 return new ExpenseAnalysisResponse(
@@ -97,19 +156,19 @@ public class ExpenseAnalysisService(
         return memoryStream.ToArray();
     }
 
-    private async Task<ParsedExpenseStatement?> ExtractFromPdfWithOpenRouterAsync(byte[] pdfBytes, CancellationToken cancellationToken)
+    private async Task<ParsedExpenseStatement?> ExtractFromPdfWithGoogleGenAiAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
         try
         {
             logger.LogInformation(
-                "Starting primary expense extraction via OpenRouter PDF. PdfSizeBytes={PdfSizeBytes}",
+                "Starting primary expense extraction via Google Gen AI PDF. PdfSizeBytes={PdfSizeBytes}",
                 pdfBytes.Length);
 
             var extractionJson = await RequestStructuredExpenseExtractionFromPdfAsync(pdfBytes, cancellationToken);
             if (!TryParseExtractionResult(extractionJson, out var extractionResult, out var validationError))
             {
                 logger.LogWarning(
-                    "OpenRouter PDF extraction returned invalid JSON. Error={Error} ResponsePreview={ResponsePreview}",
+                    "Google Gen AI PDF extraction returned invalid JSON. Error={Error} ResponsePreview={ResponsePreview}",
                     validationError,
                     TruncateForLog(extractionJson));
                 return null;
@@ -123,7 +182,7 @@ public class ExpenseAnalysisService(
                 if (statementTotal != extractedTotal)
                 {
                     logger.LogWarning(
-                        "OpenRouter PDF extraction total mismatch. StatementTotal={StatementTotal} ExtractedTotal={ExtractedTotal}.",
+                        "Google Gen AI PDF extraction total mismatch. StatementTotal={StatementTotal} ExtractedTotal={ExtractedTotal}.",
                         statementTotal,
                         extractedTotal);
                     return null;
@@ -134,94 +193,60 @@ public class ExpenseAnalysisService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "OpenRouter PDF extraction failed.");
+            logger.LogWarning(ex, "Google Gen AI PDF extraction failed.");
             return null;
         }
     }
 
     private async Task<string> RequestStructuredExpenseExtractionFromPdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
-        var pdfDataUrl = $"data:application/pdf;base64,{Convert.ToBase64String(pdfBytes)}";
-
-        using var client = httpClientFactory.CreateClient(BotServiceRegistration.OpenRouterHttpClientName);
-        using var request = new HttpRequestMessage(HttpMethod.Post, "chat/completions")
+        var options = _aiOptions.GoogleAIStudio;
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
         {
-            Content = JsonContent.Create(new
-            {
-                model = _aiOptions.OpenRouter.Model,
-                messages = new object[]
-                {
-                    new
-                    {
-                        role = "system",
-                        content = BuildDraftExtractionInstructions()
-                    },
-                    new
-                    {
-                        role = "user",
-                        content = new object[]
-                        {
-                            new
-                            {
-                                type = "text",
-                                text = BuildOpenRouterPdfUserPrompt()
-                            },
-                            new
-                            {
-                                type = "file",
-                                file = new
-                                {
-                                    filename = "statement.pdf",
-                                    file_data = pdfDataUrl
-                                }
-                            }
-                        }
-                    }
-                },
-                plugins = new object[]
-                {
-                    new
-                    {
-                        id = "file-parser",
-                        pdf = new
-                        {
-                            engine = "native"
-                        }
-                    }
-                },
-                response_format = new
-                {
-                    type = "json_schema",
-                    json_schema = new
-                    {
-                        name = "expense_statement_extraction",
-                        strict = true,
-                        schema = BuildExpenseExtractionSchema()
-                    }
-                },
-                temperature = 0
-            })
-        };
-
-        using var response = await client.SendAsync(request, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException(
-                $"OpenRouter PDF request failed with status {(int)response.StatusCode}: {TruncateForLog(errorBody)}");
+            throw new InvalidOperationException("AIProviders:GoogleAIStudio:ApiKey is not configured.");
         }
 
-        await using var responseStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        using var jsonDocument = await JsonDocument.ParseAsync(responseStream, cancellationToken: cancellationToken);
-        var messageContent = ExtractOpenRouterMessageContent(jsonDocument.RootElement)?.Trim();
+        if (string.IsNullOrWhiteSpace(options.Model))
+        {
+            throw new InvalidOperationException("AIProviders:GoogleAIStudio:Model is not configured.");
+        }
+
+        using var client = new Client(apiKey: options.ApiKey);
+        var response = await client.Models.GenerateContentAsync(
+            model: options.Model,
+            contents: new Content
+            {
+                Role = "user",
+                Parts =
+                [
+                    Part.FromText(BuildPdfUserPrompt()),
+                    Part.FromBytes(pdfBytes, "application/pdf")
+                ]
+            },
+            config: new GenerateContentConfig
+            {
+                SystemInstruction = new Content
+                {
+                    Parts =
+                    [
+                        Part.FromText(BuildDraftExtractionInstructions())
+                    ]
+                },
+                ResponseMimeType = "application/json",
+                ResponseSchema = BuildExpenseExtractionSchema(),
+                Temperature = 0
+            },
+            cancellationToken: cancellationToken);
+
+        var messageContent = response.Text?.Trim();
 
         if (string.IsNullOrWhiteSpace(messageContent))
         {
-            throw new InvalidOperationException("OpenRouter PDF request returned empty content.");
+            throw new InvalidOperationException("Google Gen AI PDF request returned empty content.");
         }
 
         logger.LogInformation(
-            "OpenRouter PDF extraction completed. ResponsePreview={ResponsePreview}",
+            "Google Gen AI PDF extraction completed. ResponsePreview={ResponsePreview}",
             TruncateForLog(messageContent));
 
         return messageContent;
@@ -461,7 +486,7 @@ public class ExpenseAnalysisService(
                """;
     }
 
-    private static string BuildOpenRouterPdfUserPrompt()
+    private static string BuildPdfUserPrompt()
     {
         return """
                Extract all spending transactions from this statement.
@@ -508,117 +533,9 @@ public class ExpenseAnalysisService(
         return Regex.Replace(value.ToUpperInvariant(), @"\s+", " ").Trim();
     }
 
-    private static object BuildExpenseExtractionSchema()
+    private static Schema BuildExpenseExtractionSchema()
     {
-        return new
-        {
-            type = "object",
-            additionalProperties = false,
-            properties = new
-            {
-                currency = new
-                {
-                    type = "string",
-                    description = "Statement currency code, for example TRY."
-                },
-                statement_total = new
-                {
-                    type = new[] { "number", "null" },
-                    description = "The explicit statement total relevant to the extracted expenses, or null if not trustworthy."
-                },
-                expenses = new
-                {
-                    type = "array",
-                    items = new
-                    {
-                        type = "object",
-                        additionalProperties = false,
-                        properties = new
-                        {
-                            date = new
-                            {
-                                type = "string",
-                                description = "Expense date in ISO format yyyy-MM-dd."
-                            },
-                            description = new
-                            {
-                                type = "string",
-                                description = "Merchant or transaction description."
-                            },
-                            amount = new
-                            {
-                                type = "number",
-                                description = "Positive expense amount."
-                            },
-                            currency = new
-                            {
-                                type = "string",
-                                description = "Expense currency code."
-                            },
-                            category = new
-                            {
-                                type = "string",
-                                description = "Expense category from the fixed list: Food & Dining, Transportation, Shopping, Entertainment, Travel, Health & Pharmacy, Subscriptions & Software, Utilities & Bills, Education, Other."
-                            }
-                        },
-                        required = new[] { "date", "description", "amount", "currency", "category" }
-                    }
-                }
-            },
-            required = new[] { "currency", "statement_total", "expenses" }
-        };
-    }
-
-    private static string? ExtractOpenRouterMessageContent(JsonElement root)
-    {
-        if (!root.TryGetProperty("choices", out var choices)
-            || choices.ValueKind != JsonValueKind.Array
-            || choices.GetArrayLength() == 0)
-        {
-            return null;
-        }
-
-        var firstChoice = choices[0];
-        if (!firstChoice.TryGetProperty("message", out var message)
-            || !message.TryGetProperty("content", out var content))
-        {
-            return null;
-        }
-
-        return content.ValueKind switch
-        {
-            JsonValueKind.String => content.GetString(),
-            JsonValueKind.Array => string.Join(
-                "\n",
-                content.EnumerateArray()
-                    .Select(ExtractContentPartText)
-                    .Where(static text => !string.IsNullOrWhiteSpace(text))),
-            _ => null
-        };
-    }
-
-    private static string? ExtractContentPartText(JsonElement part)
-    {
-        if (part.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (part.TryGetProperty("text", out var directText) && directText.ValueKind == JsonValueKind.String)
-        {
-            return directText.GetString();
-        }
-
-        if (part.TryGetProperty("type", out var type)
-            && type.ValueKind == JsonValueKind.String
-            && string.Equals(type.GetString(), "text", StringComparison.OrdinalIgnoreCase)
-            && part.TryGetProperty("text", out var text)
-            && text.ValueKind == JsonValueKind.String)
-        {
-            return text.GetString();
-        }
-
-        return null;
+        return ExpenseExtractionSchema;
     }
 
     private static DateTime ToUtcDate(DateOnly date)

@@ -57,11 +57,8 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
             
-            var chatClient = _aiOptions
-                .OpenRouter
-                .CreateOpenAiClient()
-                .GetChatClient(_aiOptions.OpenRouter.Model)
-                .AsIChatClient()
+            var chatClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIClient()
+                .AsIChatClient(_aiOptions.GoogleAIStudio.Model)
                 .AsBuilder()
                 .UseFunctionInvocation()
                 .Build();
@@ -76,7 +73,7 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        ModelId = _aiOptions.OpenRouter.Model,
+                        ModelId = _aiOptions.GoogleAIStudio.Model,
                         Tools = tools
                     },
                     AIContextProviders =
