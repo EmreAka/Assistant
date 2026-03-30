@@ -11,7 +11,8 @@ public record ExpenseQueryItem(
     string ExpenseDate,
     decimal Amount,
     string Currency,
-    string Description
+    string Description,
+    string Category
 );
 
 public record ExpenseAggregateRow(
@@ -48,7 +49,7 @@ public class ExpenseQueryToolFunctions(
         WriteIndented = true
     };
 
-    [Description("Queries the current user's expense records with safe read-only filters. Use this tool before answering spending questions. It can return a limited transaction list or aggregated summaries grouped by day, month, or description.")]
+    [Description("Queries the current user's expense records with safe read-only filters. Use this tool before answering spending questions. It can return a limited transaction list or aggregated summaries grouped by day, month, description, or statement. Use groupBy=statement to list all imported credit card billing periods (one row per PDF); each row contains a fingerprint you can pass to statementFingerprint to filter a specific period.")]
     public async Task<string> QueryExpenses(
         [Description("Start date in ISO format yyyy-MM-dd. Leave null when no lower date bound is needed.")] string? startDate = null,
         [Description("End date in ISO format yyyy-MM-dd. Leave null when no upper date bound is needed.")] string? endDate = null,
@@ -57,8 +58,9 @@ public class ExpenseQueryToolFunctions(
         [Description("Optional maximum amount filter in TRY.")] decimal? maxAmount = null,
         [Description("Maximum number of rows or groups to return. Use a small value unless the user explicitly asks for more detail.")] int? limit = null,
         [Description("Sort order. Allowed values: date_desc, date_asc, amount_desc, amount_asc, total_desc, total_asc.")] string? sortBy = null,
-        [Description("Grouping mode. Allowed values: none, day, month, description.")] string? groupBy = null,
-        [Description("Response mode. Allowed values: list or aggregate.")] string? summaryMode = null)
+        [Description("Grouping mode. Allowed values: none, day, month, description, statement. Use statement to list billing periods.")] string? groupBy = null,
+        [Description("Response mode. Allowed values: list or aggregate.")] string? summaryMode = null,
+        [Description("Optional statement fingerprint to restrict results to a single credit card billing period. Obtain fingerprints by calling with groupBy=statement first.")] string? statementFingerprint = null)
     {
         try
         {
@@ -100,7 +102,7 @@ public class ExpenseQueryToolFunctions(
             }
 
             var normalizedGroupBy = NormalizeGroupBy(groupBy);
-            var normalizedSummaryMode = NormalizeSummaryMode(summaryMode);
+            var normalizedSummaryMode = normalizedGroupBy == "statement" ? "aggregate" : NormalizeSummaryMode(summaryMode);
             var normalizedSortBy = NormalizeSortBy(sortBy, normalizedSummaryMode);
             var normalizedLimit = Math.Clamp(limit ?? 20, 1, 100);
 
@@ -134,6 +136,11 @@ public class ExpenseQueryToolFunctions(
             if (maxAmount.HasValue)
             {
                 query = query.Where(x => x.Amount <= maxAmount.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(statementFingerprint))
+            {
+                query = query.Where(x => x.StatementFingerprint == statementFingerprint);
             }
 
             var baseSummary = await query
@@ -186,7 +193,8 @@ public class ExpenseQueryToolFunctions(
                     x.ExpenseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                     x.Amount,
                     x.Currency,
-                    x.Description))
+                    x.Description,
+                    x.Category))
                 .ToListAsync(CancellationToken.None);
 
             return Serialize(new ExpenseQueryResponse(
@@ -289,6 +297,42 @@ public class ExpenseQueryToolFunctions(
                 .ToList();
         }
 
+        if (groupBy == "statement")
+        {
+            var groupedQuery = query
+                .GroupBy(x => x.StatementFingerprint)
+                .Select(g => new
+                {
+                    GroupKey = g.Key,
+                    Count = g.Count(),
+                    TotalAmount = g.Sum(x => x.Amount),
+                    AverageAmount = g.Average(x => x.Amount),
+                    FirstExpenseDate = g.Min(x => x.ExpenseDate),
+                    LastExpenseDate = g.Max(x => x.ExpenseDate)
+                });
+
+            var sortedQuery = sortBy switch
+            {
+                "total_asc" => groupedQuery.OrderBy(x => x.TotalAmount).ThenByDescending(x => x.FirstExpenseDate),
+                "date_asc" => groupedQuery.OrderBy(x => x.FirstExpenseDate),
+                _ => groupedQuery.OrderByDescending(x => x.FirstExpenseDate)
+            };
+
+            var groups = await sortedQuery
+                .Take(limit)
+                .ToListAsync(CancellationToken.None);
+
+            return groups
+                .Select(x => new ExpenseAggregateRow(
+                    x.GroupKey,
+                    x.Count,
+                    x.TotalAmount,
+                    x.AverageAmount,
+                    x.FirstExpenseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    x.LastExpenseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))
+                .ToList();
+        }
+
         var descriptionGroups = query
             .GroupBy(x => x.Description)
             .Select(g => new
@@ -342,6 +386,7 @@ public class ExpenseQueryToolFunctions(
             "day" => "day",
             "month" => "month",
             "description" => "description",
+            "statement" => "statement",
             _ => "none"
         };
     }

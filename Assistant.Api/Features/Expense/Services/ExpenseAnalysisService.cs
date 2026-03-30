@@ -242,6 +242,7 @@ public class ExpenseAnalysisService(
                 Amount = expense.Price,
                 Currency = expense.Currency,
                 Description = expense.Name,
+                Category = expense.Category,
                 StatementFingerprint = statementFingerprint,
                 CreatedAt = createdAt
             })
@@ -410,7 +411,8 @@ public class ExpenseAnalysisService(
                 DateOnly.ParseExact(item.Date!, "yyyy-MM-dd", CultureInfo.InvariantCulture),
                 item.Description!,
                 item.Amount,
-                item.Currency ?? statementCurrency))
+                item.Currency ?? statementCurrency,
+                item.Category ?? "Other"))
             .OrderBy(item => item.Date)
             .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Price)
@@ -436,7 +438,8 @@ public class ExpenseAnalysisService(
                      "date": "YYYY-MM-DD",
                      "description": "merchant or transaction description",
                      "amount": 123.45,
-                     "currency": "TRY"
+                     "currency": "TRY",
+                     "category": "Food & Dining"
                    }
                  ]
                }
@@ -451,6 +454,9 @@ public class ExpenseAnalysisService(
                - Use the statement currency unless a transaction clearly shows another currency.
                - Do not collapse repeated rows just because date, merchant, and amount are the same. If the statement lists the same spending row multiple times, keep each occurrence as a separate expense.
                - Prefer completeness over brevity: include every actual spending row you can justify from the markdown.
+               - Assign each expense a category from this fixed list: "Food & Dining", "Transportation", "Shopping", "Entertainment", "Travel", "Health & Pharmacy", "Subscriptions & Software", "Utilities & Bills", "Education", "Other".
+               - "Subscriptions & Software" covers streaming services, SaaS, AI tools (ChatGPT, Claude, Gemini, Midjourney, etc.), app stores, and cloud services.
+               - Use "Other" only when none of the above clearly fits.
                - Return JSON only. No markdown fences. No commentary.
                """;
     }
@@ -548,9 +554,14 @@ public class ExpenseAnalysisService(
                             {
                                 type = "string",
                                 description = "Expense currency code."
+                            },
+                            category = new
+                            {
+                                type = "string",
+                                description = "Expense category from the fixed list: Food & Dining, Transportation, Shopping, Entertainment, Travel, Health & Pharmacy, Subscriptions & Software, Utilities & Bills, Education, Other."
                             }
                         },
-                        required = new[] { "date", "description", "amount", "currency" }
+                        required = new[] { "date", "description", "amount", "currency", "category" }
                     }
                 }
             },
@@ -639,7 +650,8 @@ public sealed record ExpenseExtractionItem(
     string? Date,
     string? Description,
     decimal Amount,
-    string? Currency
+    string? Currency,
+    string? Category
 );
 
 public sealed record ExpenseExtractionResult(

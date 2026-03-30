@@ -13,5 +13,6 @@ public class Expense
     public string Currency { get; set; } = "TRY";
     public string Description { get; set; } = string.Empty;
     public string StatementFingerprint { get; set; } = string.Empty;
+    public string Category { get; set; } = "Other";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

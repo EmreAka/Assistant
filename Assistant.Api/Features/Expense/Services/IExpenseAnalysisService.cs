@@ -6,7 +6,8 @@ public record StatementExpenseItem(
     DateOnly Date,
     string Name,
     decimal Price,
-    string Currency
+    string Currency,
+    string Category
 );
 
 public record ParsedExpenseStatement(
