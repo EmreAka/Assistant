@@ -21,7 +21,6 @@ builder.Services.AddBotServices(builder.Configuration);
 
 var app = builder.Build();
 await app.UseDatabaseMigrationsAsync();
-app.UseHangfireRecurringJobs();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
