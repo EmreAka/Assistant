@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
+using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
@@ -201,17 +202,7 @@ public class ExpenseAnalysisService(
     private async Task<string> RequestStructuredExpenseExtractionFromPdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
         var options = _aiOptions.GoogleAIStudio;
-        if (string.IsNullOrWhiteSpace(options.ApiKey))
-        {
-            throw new InvalidOperationException("AIProviders:GoogleAIStudio:ApiKey is not configured.");
-        }
-
-        if (string.IsNullOrWhiteSpace(options.Model))
-        {
-            throw new InvalidOperationException("AIProviders:GoogleAIStudio:Model is not configured.");
-        }
-
-        using var client = new Client(apiKey: options.ApiKey);
+        using var client = options.CreateGoogleGenAIClient();
         var response = await client.Models.GenerateContentAsync(
             model: options.Model,
             contents: new Content

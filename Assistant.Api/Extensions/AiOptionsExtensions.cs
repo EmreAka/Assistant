@@ -40,12 +40,12 @@ public static class AiOptionsExtensions
 
         if (string.IsNullOrWhiteSpace(options.ApiKey))
         {
-            throw new InvalidOperationException("AIProviders:GoogleGenAI:ApiKey is not configured.");
+            throw new InvalidOperationException("AIProviders:GoogleAIStudio:ApiKey is not configured.");
         }
 
         if (string.IsNullOrWhiteSpace(options.Model))
         {
-            throw new InvalidOperationException("AIProviders:GoogleGenAI:Model is not configured.");
+            throw new InvalidOperationException("AIProviders:GoogleAIStudio:Model is not configured.");
         }
 
         return new Client(apiKey: options.ApiKey);
