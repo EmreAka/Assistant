@@ -37,7 +37,7 @@ public class AgentService(
     {
         try
         {
-            var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
+            var memoryToolFunctions = new MemoryToolFunctions(chatId, _aiOptions.DefaultTimeZoneId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
@@ -79,7 +79,7 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new MemoryContextProvider(chatId, memoryService),
+                        new MemoryContextProvider(chatId, memoryService, _aiOptions.DefaultTimeZoneId),
                         new PendingTaskContextProvider(chatId, dbContext)
                     ],
 #pragma warning disable MEAI001
@@ -141,11 +141,16 @@ public class AgentService(
                - Save memory whenever the user shares a preference, personal detail, recurring behavior, ongoing project, relationship, constraint, or goal that could help in a later conversation.
                - When unsure, lean toward saving the memory if it seems potentially useful again.
                - Do not require the memory to be permanent; medium-term context is also worth saving.
+               - For temporary or time-bound details such as trips, upcoming plans, short-lived constraints, or temporary routines, set expiresAtLocalIso so they stop being treated as current after the relevant time passes.
                - Do not save passwords, secret tokens, one-time codes, or details that are obviously expired immediately after this chat.
                - Rewrite saved memory as a concise standalone fact, and generalize overly specific details into a broader useful summary when possible.
+               - Do not overgeneralize one-off events into recurring habits or stable preferences.
+               - If you need to resolve a relative time phrase like "Friday", "this weekend", or "next month" to choose expiresAtLocalIso, call GetCurrentDateTime first.
+               - Prefer exact dates in the memory content only when the original phrasing would otherwise be ambiguous later.
                - Prefer categories: preference, profile, goal, fact.
                - Use the memory tool up to three times per turn when the user shares multiple distinct useful memories.
                - Use remembered information only when it is relevant to the current request.
+               - Treat expired time-bound memories as details that may no longer be current, not as active facts, unless the user confirms they still apply.
                - Do not mention the memory system unless the user explicitly asks.
                
                Task scheduling rules:

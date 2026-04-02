@@ -9,6 +9,9 @@ public class MemoryService(
     ILogger<MemoryService> logger
 ) : IMemoryService
 {
+    private const int ExpiredTimeBoundMemoryLookbackDays = 30;
+    private const int ExpiredTimeBoundMemoryLimit = 10;
+
     public async Task<IReadOnlyList<UserMemory>> GetActiveMemoriesAsync(long chatId, CancellationToken cancellationToken)
     {
         var nowUtc = DateTime.UtcNow;
@@ -22,11 +25,28 @@ public class MemoryService(
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<UserMemory>> GetRecentExpiredTimeBoundMemoriesAsync(long chatId, CancellationToken cancellationToken)
+    {
+        var nowUtc = DateTime.UtcNow;
+        var expiredTimeBoundCutoffUtc = nowUtc.AddDays(-ExpiredTimeBoundMemoryLookbackDays);
+
+        return await dbContext.UserMemories
+            .AsNoTracking()
+            .Where(x => x.TelegramUser.ChatId == chatId)
+            .Where(x => x.ExpiresAt != null && x.ExpiresAt <= nowUtc && x.ExpiresAt >= expiredTimeBoundCutoffUtc)
+            .OrderByDescending(x => x.ExpiresAt)
+            .ThenByDescending(x => x.Importance)
+            .ThenByDescending(x => x.LastUsedAt ?? x.CreatedAt)
+            .Take(ExpiredTimeBoundMemoryLimit)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<bool> SaveMemoryAsync(
         long chatId,
         string content,
         string category,
         int importance,
+        DateTime? expiresAtUtc,
         CancellationToken cancellationToken)
     {
         var normalizedContent = NormalizeContent(content);
@@ -61,6 +81,10 @@ public class MemoryService(
         {
             existingMemory.Importance = Math.Max(existingMemory.Importance, normalizedImportance);
             existingMemory.LastUsedAt = DateTime.UtcNow;
+            if (expiresAtUtc.HasValue)
+            {
+                existingMemory.ExpiresAt = expiresAtUtc.Value;
+            }
 
             await dbContext.SaveChangesAsync(cancellationToken);
             return false;
@@ -73,7 +97,8 @@ public class MemoryService(
             Content = normalizedContent,
             Importance = normalizedImportance,
             CreatedAt = DateTime.UtcNow,
-            LastUsedAt = DateTime.UtcNow
+            LastUsedAt = DateTime.UtcNow,
+            ExpiresAt = expiresAtUtc
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
