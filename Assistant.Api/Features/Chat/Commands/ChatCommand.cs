@@ -1,14 +1,13 @@
 using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Services.Abstracts;
 using Telegram.Bot;
-using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
-using Telegram.Bot.Types.Enums;
 
 namespace Assistant.Api.Features.Chat.Commands;
 
 public class ChatCommand(
     IAgentService agentService,
+    IChatTurnService chatTurnService,
     ITelegramResponseSender responseSender,
     ILogger<ChatCommand> logger
 ) : IBotCommand
@@ -45,6 +44,7 @@ public class ChatCommand(
         try
         {
             var responseText = await agentService.RunAsync(chatId.Value, userInput, cancellationToken: cancellationToken);
+            await chatTurnService.SaveTurnAsync(chatId.Value, userInput, responseText, cancellationToken);
             await responseSender.SendResponseAsync(chatId.Value, responseText, cancellationToken);
         }
         catch (Exception ex)

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
@@ -14,6 +15,7 @@ namespace Assistant.Api.Features.Chat.Services;
 public class AgentService(
     IPersonalityService personalityService,
     IMemoryService memoryService,
+    IChatTurnService chatTurnService,
     ApplicationDbContext dbContext,
     IBackgroundJobClient backgroundJobClient,
     IRecurringJobManager recurringJobManager,
@@ -42,6 +44,15 @@ public class AgentService(
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
             var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
+            var chatHistorySearchProvider = new TextSearchProvider(
+                (query, ct) => SearchChatTurnsAsync(chatId, query, chatTurnService, ct),
+                new TextSearchProviderOptions
+                {
+                    SearchTime = TextSearchProviderOptions.TextSearchBehavior.BeforeAIInvoke,
+                    RecentMessageMemoryLimit = 4,
+                    RecentMessageRolesIncluded = [ChatRole.User],
+                    ContextFormatter = FormatChatTurnSearchResults
+                });
 
             var tools = new List<AITool>
             {
@@ -80,6 +91,7 @@ public class AgentService(
                     [
                         new PersonalityContextProvider(chatId, personalityService),
                         new MemoryContextProvider(chatId, memoryService, _aiOptions.DefaultTimeZoneId),
+                        chatHistorySearchProvider,
                         new PendingTaskContextProvider(chatId, dbContext)
                     ],
 #pragma warning disable MEAI001
@@ -199,5 +211,67 @@ public class AgentService(
         var outputCost = totalOutputTokens * outputPricePerMillion / tokensPerMillion;
 
         return decimal.Round(inputCost + cachedInputCost + outputCost, 8, MidpointRounding.AwayFromZero);
+    }
+
+    private async Task<IEnumerable<TextSearchProvider.TextSearchResult>> SearchChatTurnsAsync(
+        long chatId,
+        string query,
+        IChatTurnService chatTurnService,
+        CancellationToken cancellationToken)
+    {
+        var results = await chatTurnService.SearchTurnsAsync(chatId, query, 3, cancellationToken);
+        if (results.Count == 0)
+        {
+            return [];
+        }
+
+        var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(_aiOptions.DefaultTimeZoneId);
+
+        return results
+            .Select(result => new TextSearchProvider.TextSearchResult
+            {
+                SourceName = $"Past chat turn from {TimeZoneInfo.ConvertTimeFromUtc(ToUtc(result.CreatedAt), timeZoneInfo):yyyy-MM-dd HH:mm:ss}",
+                Text = FormatChatTurnSearchResult(result, timeZoneInfo)
+            })
+            .ToArray();
+    }
+
+    private static string FormatChatTurnSearchResults(IList<TextSearchProvider.TextSearchResult> results)
+    {
+        if (results.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return $$"""
+                 Relevant past chat turns:
+                 Use these only if they help continue the current conversation or resolve references to something discussed earlier.
+
+                 {{string.Join(Environment.NewLine + Environment.NewLine, results.Select(x => x.Text))}}
+                 """;
+    }
+
+    private static string FormatChatTurnSearchResult(
+        ChatTurnSearchResult result,
+        TimeZoneInfo timeZoneInfo)
+    {
+        var createdAtLocal = TimeZoneInfo.ConvertTimeFromUtc(ToUtc(result.CreatedAt), timeZoneInfo)
+            .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+        return $$"""
+                 [{{createdAtLocal}}]
+                 User: {{result.UserMessage}}
+                 Assistant: {{result.AssistantMessage}}
+                 """;
+    }
+
+    private static DateTime ToUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
     }
 }
