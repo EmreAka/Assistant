@@ -25,8 +25,13 @@ public class PendingTaskContextProvider(
         var pendingTasks = await dbContext.DeferredIntents
             .AsNoTracking()
             .Where(x => x.ChatId == chatId)
-            .Where(x => x.Status == DeferredIntentStatuses.Pending || x.Status == DeferredIntentStatuses.Scheduled)
-            .OrderBy(x => x.ScheduledAtUtc)
+            .Where(x =>
+                x.Status == DeferredIntentStatuses.Pending
+                || x.Status == DeferredIntentStatuses.Scheduled
+                || x.Status == DeferredIntentStatuses.Recurring)
+            .OrderBy(x => x.ScheduledAtUtc == null ? 1 : 0)
+            .ThenBy(x => x.ScheduledAtUtc)
+            .ThenByDescending(x => x.CreatedAt)
             .Take(maxTasks)
             .ToListAsync(cancellationToken);
 
@@ -40,7 +45,7 @@ public class PendingTaskContextProvider(
             {
                 var timing = task.IsRecurring ? "recurring" : BuildTimingLabel(task.ScheduledAtUtc ?? DateTime.MinValue, nowUtc);
                 var schedule = task.IsRecurring ? $"Cron: {task.CronExpression}" : FormatScheduledTime(task);
-                return $"- [{timing}] {schedule}: {task.OriginalInstruction}";
+                return $"- Task ID: {task.IntentId} | [{timing}] {schedule}: {task.OriginalInstruction}";
             })
             .ToArray();
 
@@ -51,6 +56,7 @@ public class PendingTaskContextProvider(
                              {{string.Join(Environment.NewLine, taskLines)}}
 
                              Use this only when relevant.
+                             These lines include Task IDs. Reuse the exact Task ID when cancelling or rescheduling.
                              Do not duplicate or reschedule an existing pending task unless the user explicitly asks to change it.
                              """
         };

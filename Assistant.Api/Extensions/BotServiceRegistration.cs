@@ -57,6 +57,7 @@ public static class BotServiceRegistration
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
 
         services.AddSingleton<ITelegramResponseSender, TelegramResponseSender>();
+        services.AddScoped<IDeferredIntentScheduler, DeferredIntentScheduler>();
         services.AddScoped<IChatTurnService, ChatTurnService>();
         services.AddScoped<IPersonalityService, PersonalityService>();
         services.AddScoped<IMemoryService, MemoryService>();

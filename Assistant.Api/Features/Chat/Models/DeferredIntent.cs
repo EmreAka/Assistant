@@ -24,5 +24,6 @@ public static class DeferredIntentStatuses
     public const string Scheduled = "scheduled";
     public const string Recurring = "recurring";
     public const string Completed = "completed";
+    public const string Cancelled = "cancelled";
     public const string Failed = "failed";
 }

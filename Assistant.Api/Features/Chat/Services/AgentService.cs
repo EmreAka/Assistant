@@ -5,7 +5,6 @@ using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
 using Assistant.Api.Features.Expense.Services;
 using Assistant.Api.Features.UserManagement.Services;
-using Hangfire;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
@@ -17,8 +16,7 @@ public class AgentService(
     IMemoryService memoryService,
     IChatTurnService chatTurnService,
     ApplicationDbContext dbContext,
-    IBackgroundJobClient backgroundJobClient,
-    IRecurringJobManager recurringJobManager,
+    IDeferredIntentScheduler deferredIntentScheduler,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<MemoryToolFunctions> memoryToolLogger,
@@ -40,7 +38,7 @@ public class AgentService(
         try
         {
             var memoryToolFunctions = new MemoryToolFunctions(chatId, _aiOptions.DefaultTimeZoneId, memoryService, memoryToolLogger);
-            var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, backgroundJobClient, recurringJobManager, aiOptions, taskToolLogger);
+            var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
             var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
@@ -59,6 +57,9 @@ public class AgentService(
                 AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
                 AIFunctionFactory.Create(memoryToolFunctions.SaveMemory),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
+                AIFunctionFactory.Create(taskToolFunctions.ListTasks),
+                AIFunctionFactory.Create(taskToolFunctions.CancelTask),
+                AIFunctionFactory.Create(taskToolFunctions.RescheduleTask),
                 AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime),
                 AIFunctionFactory.Create(expenseToolFunctions.QueryExpenses)
             };
@@ -169,6 +170,11 @@ public class AgentService(
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
                - Check pending tasks and open loops before scheduling a duplicate task.
+               - Use ListTasks when the user asks what tasks or reminders are active, pending, overdue, or recurring.
+               - Use CancelTask when the user asks to cancel, stop, remove, or disable an existing task or reminder.
+               - Use RescheduleTask when the user asks to move, delay, bring forward, or otherwise change the schedule of an existing task or reminder.
+               - When cancelling or rescheduling and you do not already have the exact Task ID from context, call ListTasks first to identify the correct task.
+               - After scheduling or rescheduling, mention the exact local date/time or cron schedule in your response.
 
                Web search rules:
                - Use the SearchWeb tool for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.
