@@ -56,6 +56,9 @@ public class AgentService(
             {
                 AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
                 AIFunctionFactory.Create(memoryToolFunctions.SaveMemory),
+                AIFunctionFactory.Create(memoryToolFunctions.ListMemories),
+                AIFunctionFactory.Create(memoryToolFunctions.UpdateMemory),
+                AIFunctionFactory.Create(memoryToolFunctions.DeleteMemory),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
                 AIFunctionFactory.Create(taskToolFunctions.ListTasks),
                 AIFunctionFactory.Create(taskToolFunctions.CancelTask),
@@ -165,6 +168,10 @@ public class AgentService(
                - Use remembered information only when it is relevant to the current request.
                - Treat expired time-bound memories as details that may no longer be current, not as active facts, unless the user confirms they still apply.
                - Do not mention the memory system unless the user explicitly asks.
+               - Use ListMemories when the user asks what you remember, what you know about them, or when you need to inspect existing memories before editing them.
+               - Use UpdateMemory when the user corrects, changes, or refines something you previously remembered.
+               - Use DeleteMemory when the user explicitly asks you to forget or remove remembered information.
+               - Prefer updating or deleting an existing memory over saving a duplicate when the user is clearly modifying old remembered information.
                
                Task scheduling rules:
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.

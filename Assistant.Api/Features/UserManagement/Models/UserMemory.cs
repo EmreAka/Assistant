@@ -1,3 +1,5 @@
+using NpgsqlTypes;
+
 namespace Assistant.Api.Features.UserManagement.Models;
 
 public class UserMemory
@@ -11,4 +13,5 @@ public class UserMemory
     public DateTime CreatedAt { get; set; }
     public DateTime? LastUsedAt { get; set; }
     public DateTime? ExpiresAt { get; set; }
+    public NpgsqlTsVector SearchVector { get; set; } = null!;
 }

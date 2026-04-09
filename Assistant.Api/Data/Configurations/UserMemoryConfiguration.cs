@@ -32,6 +32,14 @@ public class UserMemoryConfiguration : IEntityTypeConfiguration<UserMemory>
             .HasColumnType("text")
             .IsRequired();
 
+        builder.Property(x => x.SearchVector)
+            .HasColumnName("search_vector");
+
+        builder.HasGeneratedTsVectorColumn(
+            x => x.SearchVector,
+            "simple",
+            x => new { x.Category, x.Content });
+
         builder.Property(x => x.Importance)
             .HasColumnName("importance")
             .IsRequired();
@@ -45,6 +53,10 @@ public class UserMemoryConfiguration : IEntityTypeConfiguration<UserMemory>
 
         builder.Property(x => x.ExpiresAt)
             .HasColumnName("expires_at");
+
+        builder.HasIndex(x => x.SearchVector)
+            .HasMethod("GIN")
+            .HasDatabaseName("IX_user_memories_search_vector");
 
         builder.HasOne(x => x.TelegramUser)
             .WithMany(x => x.Memories)

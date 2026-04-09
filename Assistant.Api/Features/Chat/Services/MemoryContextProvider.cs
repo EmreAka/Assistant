@@ -2,6 +2,7 @@ using System.Globalization;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Features.UserManagement.Models;
 using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
 
 namespace Assistant.Api.Features.Chat.Services;
 
@@ -15,8 +16,9 @@ public class MemoryContextProvider(
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var activeMemories = await memoryService.GetActiveMemoriesAsync(chatId, cancellationToken);
-        var expiredTimeBoundMemories = await memoryService.GetRecentExpiredTimeBoundMemoriesAsync(chatId, cancellationToken);
+        var currentUserQuery = ExtractCurrentUserQuery(context);
+        var activeMemories = await memoryService.SearchActiveMemoriesAsync(chatId, currentUserQuery, 6, cancellationToken);
+        var expiredTimeBoundMemories = await memoryService.SearchRecentExpiredTimeBoundMemoriesAsync(chatId, currentUserQuery, 3, cancellationToken);
 
         if (activeMemories.Count == 0 && expiredTimeBoundMemories.Count == 0)
         {
@@ -62,8 +64,17 @@ public class MemoryContextProvider(
             Instructions = $$"""
                              Known User Memories (timestamps are local to {{defaultTimeZoneId}}):
                              {{string.Join(Environment.NewLine + Environment.NewLine, sections)}}
+
+                             These lines include Memory IDs. Reuse the exact Memory ID when updating or deleting an existing memory.
                              """
         };
+    }
+
+    private static string? ExtractCurrentUserQuery(InvokingContext context)
+    {
+        return context.AIContext.Messages?
+            .LastOrDefault(message => message.Role == ChatRole.User)?
+            .Text;
     }
 
     private static string FormatMemoryLine(UserMemory memory, TimeZoneInfo timeZoneInfo)
@@ -76,7 +87,7 @@ public class MemoryContextProvider(
                 .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
             : "none";
 
-        return $"- [{memory.Category}] {memory.Content} (created: {createdAtLocal}; expires: {expiresAtLocal})";
+        return $"- Memory ID: {memory.Id} | [{memory.Category}] {memory.Content} (created: {createdAtLocal}; expires: {expiresAtLocal})";
     }
 
     private static DateTime ToUtc(DateTime value)
