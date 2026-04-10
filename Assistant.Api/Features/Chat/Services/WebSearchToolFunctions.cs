@@ -1,6 +1,6 @@
 using System.ComponentModel;
 using Assistant.Api.Domain.Configurations;
-using Google.GenAI;
+using Assistant.Api.Extensions;
 using Google.GenAI.Types;
 using Microsoft.Extensions.Options;
 
@@ -23,7 +23,7 @@ public class WebSearchToolFunctions(
         try
         {
             var options = aiProvidersOptions.Value.GoogleAIStudio;
-            var client = new Client(apiKey: options.ApiKey);
+            var client = options.CreateGoogleGenAIClient();
 
             var response = await client.Models.GenerateContentAsync(
                 model: options.Model,

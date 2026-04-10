@@ -71,9 +71,10 @@ public class AgentService(
             {
                 tools.AddRange(additionalTools);
             }
-            
-            var chatClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIClient()
-                .AsIChatClient(_aiOptions.GoogleAIStudio.Model)
+
+            var chatClient = _aiOptions.XAI.CreateXAIClient()
+                .GetChatClient(_aiOptions.XAI.Model)
+                .AsIChatClient()
                 .AsBuilder()
                 .UseFunctionInvocation()
                 .Build();
@@ -88,7 +89,7 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        ModelId = _aiOptions.GoogleAIStudio.Model,
+                        ModelId = _aiOptions.XAI.Model,
                         Tools = tools
                     },
                     AIContextProviders =

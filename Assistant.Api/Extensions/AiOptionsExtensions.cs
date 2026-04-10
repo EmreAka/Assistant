@@ -50,4 +50,26 @@ public static class AiOptionsExtensions
 
         return new Client(apiKey: options.ApiKey);
     }
+
+    public static OpenAIClient CreateXAIClient(this XAIOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new InvalidOperationException("AIProviders:XAI:ApiKey is not configured.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Model))
+        {
+            throw new InvalidOperationException("AIProviders:XAI:Model is not configured.");
+        }
+
+        return new OpenAIClient(
+            new ApiKeyCredential(options.ApiKey),
+            new OpenAIClientOptions
+            {
+                Endpoint = new Uri(options.ApiUrl, UriKind.Absolute)
+            });
+    }
 }
