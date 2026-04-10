@@ -22,35 +22,8 @@ Bu dosya agent tarafında yaptığımız `task management` ve `memory` iyileşti
 
 ## Kalanlar
 
-- [ ] `TouchMemoriesAsync` mantığını düzelt.
-Şu an context'e seçilen memory'ler otomatik olarak `used` sayılıyor. İdeal olan gerçekten cevapta kullanılan memory'yi işaretlemek.
-
-- [ ] Memory conflict resolution ekle.
-Yeni memory, eski bir memory ile çelişiyorsa duplicate açmak yerine eski kaydı güncelle veya supersede et.
-
-- [ ] Memory metadata modelini genişlet.
-Olası alanlar: `Kind`, `Confidence`, `LastConfirmedAt`, `SourceTurnId`, `IsActive`, `SupersededByMemoryId`.
-
-- [ ] Memory tool çıktılarını kullanıcı tarafında daha doğal hale getir.
-`ListMemories`, `UpdateMemory`, `DeleteMemory` cevapları daha kısa ve daha doğal özet dönebilir.
-
-- [ ] In-memory agent session yapısını kalıcı hale getir.
-Restart veya scale-out sonrası conversation continuity kırılmasın.
-
-- [ ] Task geçmişi görünümü ekle.
-Sadece aktif görevler değil, completed / failed geçmişi de kullanıcı dostu özetlenebilsin.
-
-- [ ] Task iptal / güncelleme tarafında belirsizlik çözümü ekle.
-Benzer isimli birden fazla görev olduğunda kısa bir doğrulama stratejisi gerekebilir.
-
 - [ ] Full-text search için TR / EN karma kullanım testlerini genişlet.
 Gerekirse `simple` config yerine farklı bir yaklaşım değerlendir.
 
 - [ ] Semantic retrieval ihtiyacını değerlendir.
 Full-text yeterli değilse embedding tabanlı ikinci aşama retrieval eklenebilir.
-
-- [ ] Golden conversation testleri yaz.
-Memory save / update / delete / retrieval ve task change senaryoları uçtan uca doğrulansın.
-
-- [ ] Tool telemetry ve observability geliştir.
-Hangi tool ne zaman çağrıldı, başarı / hata oranı ne, daha görünür hale getir.
