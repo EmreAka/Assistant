@@ -11,7 +11,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<AssistantPersonality> AssistantPersonalities { get; set; }
     public DbSet<ChatTurn> ChatTurns { get; set; }
     public DbSet<Expense> Expenses { get; set; }
-    public DbSet<UserMemory> UserMemories { get; set; }
+    public DbSet<UserMemoryManifest> UserMemoryManifests { get; set; }
     public DbSet<DeferredIntent> DeferredIntents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -23,7 +23,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         if (!string.Equals(Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
         {
             modelBuilder.Entity<ChatTurn>().Ignore(x => x.SearchVector);
-            modelBuilder.Entity<UserMemory>().Ignore(x => x.SearchVector);
         }
     }
 }

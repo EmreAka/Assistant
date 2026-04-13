@@ -15,5 +15,4 @@ public class TelegramUser
     public AssistantPersonality? AssistantPersonality { get; set; }
     public ICollection<ChatTurnModel> ChatTurns { get; set; } = new List<ChatTurnModel>();
     public ICollection<ExpenseModel> Expenses { get; set; } = new List<ExpenseModel>();
-    public ICollection<UserMemory> Memories { get; set; } = new List<UserMemory>();
 }

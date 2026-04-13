@@ -1,102 +1,29 @@
-using System.Globalization;
 using Assistant.Api.Features.UserManagement.Services;
-using Assistant.Api.Features.UserManagement.Models;
 using Microsoft.Agents.AI;
-using Microsoft.Extensions.AI;
 
 namespace Assistant.Api.Features.Chat.Services;
 
 public class MemoryContextProvider(
     long chatId,
-    IMemoryService memoryService,
-    string defaultTimeZoneId
+    IMemoryService memoryService
 ) : AIContextProvider
-{
-    protected override async ValueTask<AIContext> ProvideAIContextAsync(
+{    protected override async ValueTask<AIContext> ProvideAIContextAsync(
         InvokingContext context,
         CancellationToken cancellationToken = default)
     {
-        var currentUserQuery = ExtractCurrentUserQuery(context);
-        var activeMemories = await memoryService.SearchActiveMemoriesAsync(chatId, currentUserQuery, 6, cancellationToken);
-        var expiredTimeBoundMemories = await memoryService.SearchRecentExpiredTimeBoundMemoriesAsync(chatId, currentUserQuery, 3, cancellationToken);
+        var manifest = await memoryService.GetActiveManifestAsync(chatId, cancellationToken);
 
-        if (activeMemories.Count == 0 && expiredTimeBoundMemories.Count == 0)
+        if (string.IsNullOrWhiteSpace(manifest))
         {
             return new AIContext();
-        }
-
-        if (activeMemories.Count > 0)
-        {
-            await memoryService.TouchMemoriesAsync(activeMemories.Select(x => x.Id), cancellationToken);
-        }
-
-        var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(defaultTimeZoneId);
-        var sections = new List<string>();
-
-        if (activeMemories.Count > 0)
-        {
-            var activeMemoryLines = activeMemories
-                .Select(x => FormatMemoryLine(x, timeZoneInfo))
-                .ToArray();
-
-            sections.Add(
-                $$"""
-                  Current memories:
-                  {{string.Join(Environment.NewLine, activeMemoryLines)}}
-                  """);
-        }
-
-        if (expiredTimeBoundMemories.Count > 0)
-        {
-            var expiredTimeBoundMemoryLines = expiredTimeBoundMemories
-                .Select(x => FormatMemoryLine(x, timeZoneInfo))
-                .ToArray();
-
-            sections.Add(
-                $$"""
-                  Time-bound memories that may no longer be current:
-                  {{string.Join(Environment.NewLine, expiredTimeBoundMemoryLines)}}
-                  """);
         }
 
         return new AIContext
         {
             Instructions = $$"""
-                             Known User Memories (timestamps are local to {{defaultTimeZoneId}}):
-                             {{string.Join(Environment.NewLine + Environment.NewLine, sections)}}
-
-                             These lines include Memory IDs. Reuse the exact Memory ID when updating or deleting an existing memory.
+                             User Knowledge Manifesto:
+                             {{manifest}}
                              """
-        };
-    }
-
-    private static string? ExtractCurrentUserQuery(InvokingContext context)
-    {
-        return context.AIContext.Messages?
-            .LastOrDefault(message => message.Role == ChatRole.User)?
-            .Text;
-    }
-
-    private static string FormatMemoryLine(UserMemory memory, TimeZoneInfo timeZoneInfo)
-    {
-        var createdAtLocal = TimeZoneInfo.ConvertTimeFromUtc(ToUtc(memory.CreatedAt), timeZoneInfo)
-            .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-
-        var expiresAtLocal = memory.ExpiresAt.HasValue
-            ? TimeZoneInfo.ConvertTimeFromUtc(ToUtc(memory.ExpiresAt.Value), timeZoneInfo)
-                .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)
-            : "none";
-
-        return $"- Memory ID: {memory.Id} | [{memory.Category}] {memory.Content} (created: {createdAtLocal}; expires: {expiresAtLocal})";
-    }
-
-    private static DateTime ToUtc(DateTime value)
-    {
-        return value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
         };
     }
 }

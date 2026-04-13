@@ -37,7 +37,7 @@ public class AgentService(
     {
         try
         {
-            var memoryToolFunctions = new MemoryToolFunctions(chatId, _aiOptions.DefaultTimeZoneId, memoryService, memoryToolLogger);
+            var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
@@ -55,10 +55,7 @@ public class AgentService(
             var tools = new List<AITool>
             {
                 AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
-                AIFunctionFactory.Create(memoryToolFunctions.SaveMemory),
-                AIFunctionFactory.Create(memoryToolFunctions.ListMemories),
-                AIFunctionFactory.Create(memoryToolFunctions.UpdateMemory),
-                AIFunctionFactory.Create(memoryToolFunctions.DeleteMemory),
+                AIFunctionFactory.Create(memoryToolFunctions.UpdateMemoryManifest),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
                 AIFunctionFactory.Create(taskToolFunctions.ListTasks),
                 AIFunctionFactory.Create(taskToolFunctions.CancelTask),
@@ -72,9 +69,7 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
 
-            var chatClient = _aiOptions.XAI.CreateXAIClient()
-                .GetChatClient(_aiOptions.XAI.Model)
-                .AsIChatClient()
+            var chatClient = _aiOptions.XAI.CreateXAIChatClient()
                 .AsBuilder()
                 .UseFunctionInvocation()
                 .Build();
@@ -95,7 +90,7 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new MemoryContextProvider(chatId, memoryService, _aiOptions.DefaultTimeZoneId),
+                        new MemoryContextProvider(chatId, memoryService),
                         chatHistorySearchProvider,
                         new PendingTaskContextProvider(chatId, dbContext)
                     ],
@@ -155,24 +150,12 @@ public class AgentService(
                - If context is still ambiguous, ask one short clarifying question.
 
                Memory tool rules:
-               - Save memory whenever the user shares a preference, personal detail, recurring behavior, ongoing project, relationship, constraint, or goal that could help in a later conversation.
-               - When unsure, lean toward saving the memory if it seems potentially useful again.
-               - Do not require the memory to be permanent; medium-term context is also worth saving.
-               - For temporary or time-bound details such as trips, upcoming plans, short-lived constraints, or temporary routines, set expiresAtLocalIso so they stop being treated as current after the relevant time passes.
-               - Do not save passwords, secret tokens, one-time codes, or details that are obviously expired immediately after this chat.
-               - Rewrite saved memory as a concise standalone fact, and generalize overly specific details into a broader useful summary when possible.
-               - Do not overgeneralize one-off events into recurring habits or stable preferences.
-               - If you need to resolve a relative time phrase like "Friday", "this weekend", or "next month" to choose expiresAtLocalIso, call GetCurrentDateTime first.
-               - Prefer exact dates in the memory content only when the original phrasing would otherwise be ambiguous later.
-               - Prefer categories: preference, profile, goal, fact.
-               - Use the memory tool up to three times per turn when the user shares multiple distinct useful memories.
-               - Use remembered information only when it is relevant to the current request.
-               - Treat expired time-bound memories as details that may no longer be current, not as active facts, unless the user confirms they still apply.
+               - You maintain a single, comprehensive "Memory Manifesto" that captures the user's profile, preferences, goals, and known facts.
+               - Your manifesto is your working memory. If it is incomplete, your ability to provide high-quality, personalized assistance is diminished.
+               - After every user interaction, evaluate if you have learned something new or if existing information has changed.
+               - Treat your manifesto as a living document: reflect on the current conversation and update the manifesto using UpdateMemoryManifest if the information is potentially useful for future interactions.
+               - Be proactive: if you notice a gap in your knowledge (e.g., you don't know their food preferences), actively seek to fill that gap in subsequent turns and update the manifesto immediately.
                - Do not mention the memory system unless the user explicitly asks.
-               - Use ListMemories when the user asks what you remember, what you know about them, or when you need to inspect existing memories before editing them.
-               - Use UpdateMemory when the user corrects, changes, or refines something you previously remembered.
-               - Use DeleteMemory when the user explicitly asks you to forget or remove remembered information.
-               - Prefer updating or deleting an existing memory over saving a duplicate when the user is clearly modifying old remembered information.
                
                Task scheduling rules:
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.

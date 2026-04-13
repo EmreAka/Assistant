@@ -1,6 +1,7 @@
 using System.ClientModel;
 using Assistant.Api.Domain.Configurations;
 using Google.GenAI;
+using Microsoft.Extensions.AI;
 using OpenAI;
 
 namespace Assistant.Api.Extensions;
@@ -34,6 +35,13 @@ public static class AiOptionsExtensions
             });
     }
 
+    public static IChatClient CreateOpenRouterChatClient(this OpenRouterOptions options)
+    {
+        return options.CreateOpenAiClient()
+            .GetChatClient(options.Model)
+            .AsIChatClient();
+    }
+
     public static Client CreateGoogleGenAIClient(this GoogleAiStudioOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -49,6 +57,12 @@ public static class AiOptionsExtensions
         }
 
         return new Client(apiKey: options.ApiKey);
+    }
+
+    public static IChatClient CreateGoogleGenAIChatClient(this GoogleAiStudioOptions options)
+    {
+        return options.CreateGoogleGenAIClient()
+            .AsIChatClient(options.Model);
     }
 
     public static OpenAIClient CreateXAIClient(this XAIOptions options)
@@ -71,5 +85,12 @@ public static class AiOptionsExtensions
             {
                 Endpoint = new Uri(options.ApiUrl, UriKind.Absolute)
             });
+    }
+
+    public static IChatClient CreateXAIChatClient(this XAIOptions options)
+    {
+        return options.CreateXAIClient()
+            .GetChatClient(options.Model)
+            .AsIChatClient();
     }
 }

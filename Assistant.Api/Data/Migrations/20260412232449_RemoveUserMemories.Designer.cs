@@ -3,6 +3,7 @@ using System;
 using Assistant.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -12,9 +13,11 @@ using NpgsqlTypes;
 namespace Assistant.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260412232449_RemoveUserMemories")]
+    partial class RemoveUserMemories
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -278,6 +281,66 @@ namespace Assistant.Api.Data.Migrations
                     b.ToTable("telegram_users", (string)null);
                 });
 
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.UserMemory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("content");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at");
+
+                    b.Property<int>("Importance")
+                        .HasColumnType("integer")
+                        .HasColumnName("importance");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_used_at");
+
+                    b.Property<NpgsqlTsVector>("SearchVector")
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("tsvector")
+                        .HasColumnName("search_vector")
+                        .HasAnnotation("Npgsql:TsVectorConfig", "simple")
+                        .HasAnnotation("Npgsql:TsVectorProperties", new[] { "Category", "Content" });
+
+                    b.Property<int>("TelegramUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("telegram_user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SearchVector")
+                        .HasDatabaseName("IX_user_memories_search_vector");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "GIN");
+
+                    b.HasIndex("TelegramUserId");
+
+                    b.ToTable("user_memories", (string)null);
+                });
+
             modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.UserMemoryManifest", b =>
                 {
                     b.Property<int>("Id")
@@ -351,6 +414,17 @@ namespace Assistant.Api.Data.Migrations
                     b.Navigation("TelegramUser");
                 });
 
+            modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.UserMemory", b =>
+                {
+                    b.HasOne("Assistant.Api.Features.UserManagement.Models.TelegramUser", "TelegramUser")
+                        .WithMany("Memories")
+                        .HasForeignKey("TelegramUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TelegramUser");
+                });
+
             modelBuilder.Entity("Assistant.Api.Features.UserManagement.Models.UserMemoryManifest", b =>
                 {
                     b.HasOne("Assistant.Api.Features.UserManagement.Models.TelegramUser", "TelegramUser")
@@ -369,6 +443,8 @@ namespace Assistant.Api.Data.Migrations
                     b.Navigation("ChatTurns");
 
                     b.Navigation("Expenses");
+
+                    b.Navigation("Memories");
                 });
 #pragma warning restore 612, 618
         }
