@@ -150,7 +150,7 @@ public class AgentService(
                - If context is still ambiguous, ask one short clarifying question.
 
                Memory tool rules:
-               - You maintain a single, comprehensive "Memory Manifesto" that captures the user's profile, preferences, goals, and known facts.
+               - You maintain a single, comprehensive "Memory Manifesto" that captures the user's profile, preferences, goals, and known facts using Markdown Syntax.
                - Your manifesto is your working memory. If it is incomplete, your ability to provide high-quality, personalized assistance is diminished.
                - After every user interaction, evaluate if you have learned something new or if existing information has changed.
                - Treat your manifesto as a living document: reflect on the current conversation and update the manifesto using UpdateMemoryManifest if the information is potentially useful for future interactions.
