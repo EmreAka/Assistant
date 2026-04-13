@@ -31,6 +31,9 @@ dotnet ef database update --project Assistant.Api --startup-project Assistant.Ap
 docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 ```
 
+## Commits
+- Use conventional commits (https://www.conventionalcommits.org/)
+
 ## Architecture
 
 ### Request Flow
