@@ -11,71 +11,70 @@ namespace Assistant.Api.Tests.ChatFeatures;
 public class MemoryToolFunctionsTests
 {
     [Fact]
-    public async Task ListMemories_ReturnsOnlyActiveMemoriesByDefault()
+    public async Task UpdateMemoryManifest_SavesManifestForCurrentChat()
     {
-        await using var dbContext = CreateDbContext(nameof(ListMemories_ReturnsOnlyActiveMemoriesByDefault));
+        await using var dbContext = CreateDbContext(nameof(UpdateMemoryManifest_SavesManifestForCurrentChat));
+        SeedUser(dbContext, 1, 1001);
+        var tool = CreateTool(1001, dbContext);
+
+        var result = await tool.UpdateMemoryManifest("User prefers filter coffee.");
+
+        var storedManifest = await dbContext.UserMemoryManifests.SingleAsync();
+        Assert.Equal("Memory manifest updated successfully.", result);
+        Assert.Equal("User prefers filter coffee.", storedManifest.Content);
+        Assert.Equal(1, storedManifest.Version);
+        Assert.True(storedManifest.IsActive);
+    }
+
+    [Fact]
+    public async Task UpdateMemoryManifest_CreatesNewActiveVersion_WithoutTouchingOtherChats()
+    {
+        await using var dbContext = CreateDbContext(nameof(UpdateMemoryManifest_CreatesNewActiveVersion_WithoutTouchingOtherChats));
         SeedUser(dbContext, 1, 1001);
         SeedUser(dbContext, 2, 2002);
-        dbContext.UserMemories.AddRange(
-            CreateMemory(1, "preference", "User likes filter coffee", 8),
-            CreateMemory(1, "fact", "User is on vacation", 6, expiresAtUtc: DateTime.UtcNow.AddHours(-1)),
-            CreateMemory(2, "goal", "Other chat goal", 7));
+        dbContext.UserMemoryManifests.AddRange(
+            CreateManifest(1, "Old chat 1001 manifest", 1, isActive: true),
+            CreateManifest(2, "Chat 2002 manifest", 1, isActive: true));
         await dbContext.SaveChangesAsync();
 
         var tool = CreateTool(1001, dbContext);
 
-        var result = await tool.ListMemories();
+        var result = await tool.UpdateMemoryManifest("Updated chat 1001 manifest");
 
-        Assert.Contains("Memories for current chat:", result);
-        Assert.Contains("Memory ID:", result);
-        Assert.Contains("User likes filter coffee", result);
-        Assert.DoesNotContain("User is on vacation", result);
-        Assert.DoesNotContain("Other chat goal", result);
+        var chat1001Manifests = await dbContext.UserMemoryManifests
+            .Where(x => x.TelegramUserId == 1)
+            .OrderBy(x => x.Version)
+            .ToListAsync();
+        var chat2002Manifest = await dbContext.UserMemoryManifests
+            .SingleAsync(x => x.TelegramUserId == 2);
+
+        Assert.Equal("Memory manifest updated successfully.", result);
+        Assert.Equal(2, chat1001Manifests.Count);
+        Assert.False(chat1001Manifests[0].IsActive);
+        Assert.True(chat1001Manifests[1].IsActive);
+        Assert.Equal("Updated chat 1001 manifest", chat1001Manifests[1].Content);
+        Assert.Equal(2, chat1001Manifests[1].Version);
+        Assert.True(chat2002Manifest.IsActive);
+        Assert.Equal("Chat 2002 manifest", chat2002Manifest.Content);
     }
 
     [Fact]
-    public async Task UpdateMemory_UpdatesFields_AndCanClearExpiration()
+    public async Task UpdateMemoryManifest_ReturnsFailure_WhenChatIsUnknown()
     {
-        await using var dbContext = CreateDbContext(nameof(UpdateMemory_UpdatesFields_AndCanClearExpiration));
-        SeedUser(dbContext, 1, 1001);
-        var memory = CreateMemory(1, "preference", "User likes latte", 5, expiresAtUtc: DateTime.UtcNow.AddDays(2));
-        dbContext.UserMemories.Add(memory);
-        await dbContext.SaveChangesAsync();
-
+        await using var dbContext = CreateDbContext(nameof(UpdateMemoryManifest_ReturnsFailure_WhenChatIsUnknown));
         var tool = CreateTool(1001, dbContext);
 
-        var result = await tool.UpdateMemory(memory.Id, content: "User likes espresso", importance: 9, clearExpiration: true);
+        var result = await tool.UpdateMemoryManifest("Anything");
 
-        var storedMemory = await dbContext.UserMemories.SingleAsync();
-        Assert.Equal($"Memory updated successfully. Memory ID: {memory.Id}", result);
-        Assert.Equal("User likes espresso", storedMemory.Content);
-        Assert.Equal(9, storedMemory.Importance);
-        Assert.Null(storedMemory.ExpiresAt);
-    }
-
-    [Fact]
-    public async Task DeleteMemory_RemovesMemoryForCurrentChat()
-    {
-        await using var dbContext = CreateDbContext(nameof(DeleteMemory_RemovesMemoryForCurrentChat));
-        SeedUser(dbContext, 1, 1001);
-        var memory = CreateMemory(1, "fact", "User works remotely", 7);
-        dbContext.UserMemories.Add(memory);
-        await dbContext.SaveChangesAsync();
-
-        var tool = CreateTool(1001, dbContext);
-
-        var result = await tool.DeleteMemory(memory.Id);
-
-        Assert.Equal($"Memory deleted successfully. Memory ID: {memory.Id}", result);
-        Assert.Empty(await dbContext.UserMemories.ToListAsync());
+        Assert.Equal("Failed to update memory manifest.", result);
+        Assert.Empty(await dbContext.UserMemoryManifests.ToListAsync());
     }
 
     private static MemoryToolFunctions CreateTool(long chatId, ApplicationDbContext dbContext)
     {
         return new MemoryToolFunctions(
             chatId,
-            "Europe/Istanbul",
-            new MemoryService(dbContext, NullLogger<MemoryService>.Instance),
+            new MemoryService(dbContext),
             NullLogger<MemoryToolFunctions>.Instance);
     }
 
@@ -101,17 +100,15 @@ public class MemoryToolFunctionsTests
         dbContext.SaveChanges();
     }
 
-    private static UserMemory CreateMemory(int telegramUserId, string category, string content, int importance, DateTime? expiresAtUtc = null)
+    private static UserMemoryManifest CreateManifest(int telegramUserId, string content, int version, bool isActive)
     {
-        return new UserMemory
+        return new UserMemoryManifest
         {
             TelegramUserId = telegramUserId,
-            Category = category,
             Content = content,
-            Importance = importance,
-            CreatedAt = DateTime.UtcNow,
-            LastUsedAt = DateTime.UtcNow,
-            ExpiresAt = expiresAtUtc
+            Version = version,
+            IsActive = isActive,
+            UpdatedAt = DateTime.UtcNow
         };
     }
 

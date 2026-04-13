@@ -3,67 +3,74 @@ using Assistant.Api.Features.Chat.Models;
 using Assistant.Api.Features.UserManagement.Models;
 using Assistant.Api.Features.UserManagement.Services;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Assistant.Api.Tests.UserManagement;
 
 public class MemoryServiceTests
 {
     [Fact]
-    public async Task SearchActiveMemoriesAsync_ReturnsOnlyRelevantMatches()
+    public async Task GetActiveManifestAsync_ReturnsEmptyString_WhenNoManifestExists()
     {
-        await using var dbContext = CreateDbContext(nameof(SearchActiveMemoriesAsync_ReturnsOnlyRelevantMatches));
+        await using var dbContext = CreateDbContext(nameof(GetActiveManifestAsync_ReturnsEmptyString_WhenNoManifestExists));
         SeedUser(dbContext, 1, 1001);
-        dbContext.UserMemories.AddRange(
-            CreateMemory(1, "preference", "User likes filter coffee", 8),
-            CreateMemory(1, "goal", "User wants to finish the C# course", 7),
-            CreateMemory(1, "fact", "User has two cats", 6));
-        await dbContext.SaveChangesAsync();
+        var service = new MemoryService(dbContext);
 
-        var service = new MemoryService(dbContext, NullLogger<MemoryService>.Instance);
+        var result = await service.GetActiveManifestAsync(1001, CancellationToken.None);
 
-        var result = await service.SearchActiveMemoriesAsync(1001, "coffee beans", 5, CancellationToken.None);
-
-        Assert.Single(result);
-        Assert.Equal("User likes filter coffee", result[0].Content);
+        Assert.Equal(string.Empty, result);
     }
 
     [Fact]
-    public async Task SearchRecentExpiredTimeBoundMemoriesAsync_ReturnsRecentRelevantExpiredMemoriesOnly()
+    public async Task SaveManifestAsync_CreatesInitialActiveManifest()
     {
-        await using var dbContext = CreateDbContext(nameof(SearchRecentExpiredTimeBoundMemoriesAsync_ReturnsRecentRelevantExpiredMemoriesOnly));
+        await using var dbContext = CreateDbContext(nameof(SaveManifestAsync_CreatesInitialActiveManifest));
         SeedUser(dbContext, 1, 1001);
-        dbContext.UserMemories.AddRange(
-            CreateMemory(1, "fact", "User was traveling in Rome", 7, expiresAtUtc: DateTime.UtcNow.AddDays(-2)),
-            CreateMemory(1, "fact", "User was in Berlin", 7, expiresAtUtc: DateTime.UtcNow.AddDays(-45)),
-            CreateMemory(1, "goal", "User wants to practice piano", 8));
-        await dbContext.SaveChangesAsync();
+        var service = new MemoryService(dbContext);
 
-        var service = new MemoryService(dbContext, NullLogger<MemoryService>.Instance);
+        var saved = await service.SaveManifestAsync(1001, "User likes espresso.", CancellationToken.None);
 
-        var result = await service.SearchRecentExpiredTimeBoundMemoriesAsync(1001, "travel Rome", 5, CancellationToken.None);
-
-        Assert.Single(result);
-        Assert.Equal("User was traveling in Rome", result[0].Content);
+        var storedManifest = await dbContext.UserMemoryManifests.SingleAsync();
+        Assert.True(saved);
+        Assert.Equal("User likes espresso.", storedManifest.Content);
+        Assert.Equal(1, storedManifest.Version);
+        Assert.True(storedManifest.IsActive);
     }
 
     [Fact]
-    public async Task ListMemoriesAsync_AllFilterAndSearchText_ReturnsMatchingMemories()
+    public async Task SaveManifestAsync_DeactivatesPreviousManifest_AndReturnsLatestActiveContent()
     {
-        await using var dbContext = CreateDbContext(nameof(ListMemoriesAsync_AllFilterAndSearchText_ReturnsMatchingMemories));
+        await using var dbContext = CreateDbContext(nameof(SaveManifestAsync_DeactivatesPreviousManifest_AndReturnsLatestActiveContent));
         SeedUser(dbContext, 1, 1001);
-        dbContext.UserMemories.AddRange(
-            CreateMemory(1, "preference", "User likes espresso", 8),
-            CreateMemory(1, "project", "Assistant project deadline is Friday", 9),
-            CreateMemory(1, "fact", "User is temporarily in Ankara", 5, expiresAtUtc: DateTime.UtcNow.AddHours(-2)));
+        dbContext.UserMemoryManifests.Add(CreateManifest(1, "Old manifest", 1, isActive: true));
         await dbContext.SaveChangesAsync();
 
-        var service = new MemoryService(dbContext, NullLogger<MemoryService>.Instance);
+        var service = new MemoryService(dbContext);
 
-        var result = await service.ListMemoriesAsync(1001, "all", "project", 10, CancellationToken.None);
+        var saved = await service.SaveManifestAsync(1001, "Updated manifest", CancellationToken.None);
+        var activeManifest = await service.GetActiveManifestAsync(1001, CancellationToken.None);
+        var storedManifests = await dbContext.UserMemoryManifests
+            .Where(x => x.TelegramUserId == 1)
+            .OrderBy(x => x.Version)
+            .ToListAsync();
 
-        Assert.Single(result);
-        Assert.Equal("Assistant project deadline is Friday", result[0].Content);
+        Assert.True(saved);
+        Assert.Equal("Updated manifest", activeManifest);
+        Assert.Equal(2, storedManifests.Count);
+        Assert.False(storedManifests[0].IsActive);
+        Assert.True(storedManifests[1].IsActive);
+        Assert.Equal(2, storedManifests[1].Version);
+    }
+
+    [Fact]
+    public async Task SaveManifestAsync_ReturnsFalse_WhenUserDoesNotExist()
+    {
+        await using var dbContext = CreateDbContext(nameof(SaveManifestAsync_ReturnsFalse_WhenUserDoesNotExist));
+        var service = new MemoryService(dbContext);
+
+        var saved = await service.SaveManifestAsync(1001, "Manifest content", CancellationToken.None);
+
+        Assert.False(saved);
+        Assert.Empty(await dbContext.UserMemoryManifests.ToListAsync());
     }
 
     private static ApplicationDbContext CreateDbContext(string databaseName)
@@ -88,17 +95,15 @@ public class MemoryServiceTests
         dbContext.SaveChanges();
     }
 
-    private static UserMemory CreateMemory(int telegramUserId, string category, string content, int importance, DateTime? expiresAtUtc = null)
+    private static UserMemoryManifest CreateManifest(int telegramUserId, string content, int version, bool isActive)
     {
-        return new UserMemory
+        return new UserMemoryManifest
         {
             TelegramUserId = telegramUserId,
-            Category = category,
             Content = content,
-            Importance = importance,
-            CreatedAt = DateTime.UtcNow,
-            LastUsedAt = DateTime.UtcNow,
-            ExpiresAt = expiresAtUtc
+            Version = version,
+            IsActive = isActive,
+            UpdatedAt = DateTime.UtcNow
         };
     }
 
