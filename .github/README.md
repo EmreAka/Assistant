@@ -14,7 +14,9 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 - Successful chat turns are persisted and recalled through PostgreSQL full-text search so the agent can pull relevant older conversation snippets.
 - The chat agent can schedule, list, cancel, and reschedule deferred tasks and reminders through Hangfire-backed tools.
 - The chat agent can trigger live web search for fresh information and query previously imported expenses from the database.
-- Credit card statement PDFs can be analyzed, normalized, and persisted as expense transactions.
+- The `/expense` command now provides a deterministic overview with statement-period browsing and category rollups.
+- Imported statement periods can be drilled into with `/expense <number>` and filtered with `/expense <number> <category>`.
+- Credit card statement PDFs are analyzed, validated, deduplicated, and persisted as categorized expense transactions.
 - TEFAS fund pages are fetched live, parsed into structured snapshots, and summarized through the agent with a deterministic fallback.
 - Incoming Telegram updates and deferred tasks are processed in the background via Hangfire.
 
@@ -25,7 +27,7 @@ The bot currently supports the following commands:
 | --- | --- |
 | `/start` | Registers the Telegram user and sends a welcome message. |
 | `/chat` | General-purpose chat entrypoint. The agent can answer questions, remember useful personal context, manage reminders/tasks, search the web when needed, and query saved expenses. |
-| `/expense` | Shows a deterministic expense summary and handles uploaded credit card statement PDFs. |
+| `/expense` | Shows a deterministic expense overview, supports statement drill-down and category filters, and handles uploaded credit card statement PDFs. |
 | `/tefas` | Fetches live TEFAS fund data for a fund code and returns a short fund summary. |
 
 Bot commands are registered with Telegram during application startup.
@@ -35,6 +37,8 @@ Examples:
 - `/chat NVIDIA stock price current`
 - `yarın sabah 9'da su içmeyi hatırlat`
 - `/expense`
+- `/expense 1`
+- `/expense 1 Food & Dining`
 - `/tefas AFT`
 
 Chat flow:
@@ -44,10 +48,13 @@ Chat flow:
 - Agent tools currently include web search, memory manifest update, task scheduling, current time lookup, and expense querying.
 
 Expense flow:
-- Run `/expense` in a private chat to see the currently saved deterministic expense summary.
+- Run `/expense` in a private chat to see a deterministic overview with total spend, transaction count, last-30-day spend, latest expense date, statement periods, and category totals.
+- Imported statement periods are listed newest-first. Run `/expense 1` to inspect the first statement in that list.
+- Run `/expense 1 Food & Dining` to filter a specific statement view down to one category while still showing the statement's category summary.
 - Upload a credit card statement PDF with the `/expense` command caption to trigger analysis.
-- The bot sends the uploaded PDF to Google Gen AI for structured extraction, validates the result, and saves normalized transactions to the `Expenses` table.
-- Expense questions such as totals, merchants, or period breakdowns are primarily handled in normal chat through the `QueryExpenses` tool.
+- The bot sends the uploaded PDF to Google Gen AI for structured extraction, validates totals/currency, normalizes categories, and saves the resulting transactions to the `Expenses` table.
+- Duplicate statement imports are blocked by a deterministic fingerprint built from the normalized transaction rows.
+- Free-form expense questions such as totals, merchants, or date-range breakdowns are intentionally handled in normal chat through the `QueryExpenses` tool. If a user asks that kind of question via `/expense`, the command returns the deterministic summary and points them back to chat.
 
 TEFAS flow:
 - Run `/tefas <FUND_CODE>` such as `/tefas AFT`.
@@ -96,9 +103,11 @@ Implementation notes:
 - `WebSearchToolFunctions`
   - Executes Google AI Studio-backed web searches for fresh public information and returns grounded text back to the chat agent.
 - `ExpenseCommand`
-  - Returns the user's current expense summary or handles statement PDF uploads for automated expense registration.
+  - Returns the user's deterministic expense overview, supports statement/category drill-down, or handles statement PDF uploads for automated expense registration.
+- `ExpenseStatementBrowseService`
+  - Builds the overview and per-statement detail views from saved expenses grouped by imported statement fingerprint.
 - `ExpenseAnalysisService`
-  - Sends uploaded PDFs to Google Gen AI for structured extraction, validates the response, and persists normalized expense transactions.
+  - Sends uploaded PDFs to Google Gen AI for structured extraction, validates the response, deduplicates previously imported statements, and persists normalized categorized expense transactions.
 - `ExpenseQueryToolFunctions`
   - Queries saved expenses for totals, merchants, statement periods, and grouped summaries.
 - `TefasCommand`
