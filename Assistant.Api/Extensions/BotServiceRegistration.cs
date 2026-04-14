@@ -66,6 +66,7 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
+        services.AddScoped<IExpenseStatementBrowseService, ExpenseStatementBrowseService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITefasHtmlParser, TefasHtmlParser>();
         services.AddScoped<ITefasAnalysisService, TefasAnalysisService>();
