@@ -1,4 +1,5 @@
 using Assistant.Api.Features.Chat.Services;
+using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -8,6 +9,7 @@ namespace Assistant.Api.Features.Chat.Commands;
 public class ChatCommand(
     IAgentService agentService,
     IChatTurnService chatTurnService,
+    IMemoryConsolidationCoordinator memoryConsolidationCoordinator,
     ITelegramResponseSender responseSender,
     ILogger<ChatCommand> logger
 ) : IBotCommand
@@ -44,7 +46,20 @@ public class ChatCommand(
         try
         {
             var responseText = await agentService.RunAsync(chatId.Value, userInput, cancellationToken: cancellationToken);
-            await chatTurnService.SaveTurnAsync(chatId.Value, userInput, responseText, cancellationToken);
+            var savedTurn = await chatTurnService.SaveTurnAsync(chatId.Value, userInput, responseText, cancellationToken);
+
+            if (savedTurn is not null)
+            {
+                try
+                {
+                    await memoryConsolidationCoordinator.QueueIfNeededAsync(savedTurn.TelegramUserId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Memory consolidation queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
+                }
+            }
+
             await responseSender.SendResponseAsync(chatId.Value, responseText, cancellationToken);
         }
         catch (Exception ex)

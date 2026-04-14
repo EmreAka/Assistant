@@ -19,7 +19,6 @@ public class AgentService(
     IDeferredIntentScheduler deferredIntentScheduler,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
-    ILogger<MemoryToolFunctions> memoryToolLogger,
     ILogger<TaskToolFunctions> taskToolLogger,
     ILogger<WebSearchToolFunctions> webSearchToolLogger,
     ILogger<ExpenseQueryToolFunctions> expenseToolLogger
@@ -37,7 +36,6 @@ public class AgentService(
     {
         try
         {
-            var memoryToolFunctions = new MemoryToolFunctions(chatId, memoryService, memoryToolLogger);
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, aiOptions, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(aiOptions);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
@@ -55,7 +53,6 @@ public class AgentService(
             var tools = new List<AITool>
             {
                 AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
-                AIFunctionFactory.Create(memoryToolFunctions.UpdateMemoryManifest),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
                 AIFunctionFactory.Create(taskToolFunctions.ListTasks),
                 AIFunctionFactory.Create(taskToolFunctions.CancelTask),
@@ -149,14 +146,6 @@ public class AgentService(
                - Do not reopen settled decisions unless the user changes them.
                - If context is still ambiguous, ask one short clarifying question.
 
-               Memory tool rules:
-               - You maintain a single, comprehensive "Memory Manifesto" that captures the user's profile, preferences, goals, and known facts using Markdown Syntax.
-               - Your manifesto is your working memory. If it is incomplete, your ability to provide high-quality, personalized assistance is diminished.
-               - After every user interaction, evaluate if you have learned something new or if existing information has changed.
-               - Treat your manifesto as a living document: reflect on the current conversation and update the manifesto using UpdateMemoryManifest if the information is potentially useful for future interactions.
-               - Be proactive: if you notice a gap in your knowledge (e.g., you don't know their food preferences), actively seek to fill that gap in subsequent turns and update the manifesto immediately.
-               - Do not mention the memory system unless the user explicitly asks.
-               
                Task scheduling rules:
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
                - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".

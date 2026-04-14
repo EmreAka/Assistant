@@ -12,6 +12,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ChatTurn> ChatTurns { get; set; }
     public DbSet<Expense> Expenses { get; set; }
     public DbSet<UserMemoryManifest> UserMemoryManifests { get; set; }
+    public DbSet<UserMemoryConsolidationState> UserMemoryConsolidationStates { get; set; }
     public DbSet<DeferredIntent> DeferredIntents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

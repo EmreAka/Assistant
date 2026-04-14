@@ -12,7 +12,7 @@ public class ChatTurnService(
     private const int MinimumSearchTermLength = 2;
     private const int MaximumSearchTerms = 8;
 
-    public async Task SaveTurnAsync(
+    public async Task<ChatTurnSaveResult?> SaveTurnAsync(
         long chatId,
         string userMessage,
         string assistantMessage,
@@ -23,7 +23,7 @@ public class ChatTurnService(
 
         if (string.IsNullOrWhiteSpace(normalizedUserMessage) || string.IsNullOrWhiteSpace(normalizedAssistantMessage))
         {
-            return;
+            return null;
         }
 
         var userId = await dbContext.TelegramUsers
@@ -35,18 +35,22 @@ public class ChatTurnService(
         if (userId == null)
         {
             logger.LogWarning("Chat turn could not be saved because telegram user was not found. ChatId: {ChatId}", chatId);
-            return;
+            return null;
         }
 
-        dbContext.ChatTurns.Add(new ChatTurn
+        var createdAtUtc = DateTime.UtcNow;
+        var turn = new ChatTurn
         {
             TelegramUserId = userId.Value,
             UserMessage = normalizedUserMessage,
             AssistantMessage = normalizedAssistantMessage,
-            CreatedAt = DateTime.UtcNow
-        });
+            CreatedAt = createdAtUtc
+        };
+
+        dbContext.ChatTurns.Add(turn);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        return new ChatTurnSaveResult(turn.Id, userId.Value, chatId, createdAtUtc);
     }
 
     public async Task<IReadOnlyList<ChatTurnSearchResult>> SearchTurnsAsync(

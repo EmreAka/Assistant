@@ -13,6 +13,7 @@ public class TelegramUser
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public AssistantPersonality? AssistantPersonality { get; set; }
+    public UserMemoryConsolidationState? MemoryConsolidationState { get; set; }
     public ICollection<ChatTurnModel> ChatTurns { get; set; } = new List<ChatTurnModel>();
     public ICollection<ExpenseModel> Expenses { get; set; } = new List<ExpenseModel>();
 }

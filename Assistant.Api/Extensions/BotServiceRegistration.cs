@@ -27,6 +27,7 @@ public static class BotServiceRegistration
     {
         services.Configure<AiProvidersOptions>(configuration.GetSection("AIProviders"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
+        services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
 
         services.AddHttpClient(OpenRouterHttpClientName, (provider, client) =>
         {
@@ -61,6 +62,9 @@ public static class BotServiceRegistration
         services.AddScoped<IChatTurnService, ChatTurnService>();
         services.AddScoped<IPersonalityService, PersonalityService>();
         services.AddScoped<IMemoryService, MemoryService>();
+        services.AddScoped<IMemoryConsolidationScheduler, MemoryConsolidationScheduler>();
+        services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
+        services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITefasHtmlParser, TefasHtmlParser>();
