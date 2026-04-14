@@ -21,7 +21,7 @@ public class TelegramResponseSender(
         var chunks = SplitTelegramMessage(responseText).ToList();
         if (chunks.Count == 0)
         {
-            chunks.Add("Uygun bir cevap olusturamadim.");
+            chunks.Add("I couldn't generate a response. Please try again.");
         }
 
         foreach (var chunk in chunks)
