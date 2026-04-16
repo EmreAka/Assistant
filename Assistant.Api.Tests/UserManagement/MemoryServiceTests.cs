@@ -21,6 +21,24 @@ public class MemoryServiceTests
     }
 
     [Fact]
+    public async Task GetActiveManifestRecordAsync_ReturnsLatestActiveManifest()
+    {
+        await using var dbContext = CreateDbContext(nameof(GetActiveManifestRecordAsync_ReturnsLatestActiveManifest));
+        SeedUser(dbContext, 1, 1001);
+        dbContext.UserMemoryManifests.Add(CreateManifest(1, "Old manifest", 1, isActive: false));
+        dbContext.UserMemoryManifests.Add(CreateManifest(1, "Current manifest", 2, isActive: true));
+        await dbContext.SaveChangesAsync();
+        var service = new MemoryService(dbContext);
+
+        var manifest = await service.GetActiveManifestRecordAsync(1001, CancellationToken.None);
+
+        Assert.NotNull(manifest);
+        Assert.Equal("Current manifest", manifest.Content);
+        Assert.Equal(2, manifest.Version);
+        Assert.True(manifest.IsActive);
+    }
+
+    [Fact]
     public async Task SaveManifestAsync_CreatesInitialActiveManifest()
     {
         await using var dbContext = CreateDbContext(nameof(SaveManifestAsync_CreatesInitialActiveManifest));

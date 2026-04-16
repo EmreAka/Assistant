@@ -72,6 +72,7 @@ public static class BotServiceRegistration
         services.AddScoped<ITefasAnalysisService, TefasAnalysisService>();
 
         services.AddTransient<IBotCommand, ExpenseCommand>();
+        services.AddTransient<IBotCommand, MemoryCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommand, ChatCommand>();
         services.AddTransient<IBotCommand, TefasCommand>();

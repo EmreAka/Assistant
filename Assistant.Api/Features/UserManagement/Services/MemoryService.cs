@@ -10,13 +10,17 @@ public class MemoryService(
 {
     public async Task<string> GetActiveManifestAsync(long chatId, CancellationToken cancellationToken)
     {
-        var manifest = await dbContext.UserMemoryManifests
+        var manifest = await GetActiveManifestRecordAsync(chatId, cancellationToken);
+        return manifest?.Content ?? string.Empty;
+    }
+
+    public Task<UserMemoryManifest?> GetActiveManifestRecordAsync(long chatId, CancellationToken cancellationToken)
+    {
+        return dbContext.UserMemoryManifests
             .AsNoTracking()
             .Where(x => x.TelegramUser.ChatId == chatId && x.IsActive)
             .OrderByDescending(x => x.Version)
             .FirstOrDefaultAsync(cancellationToken);
-
-        return manifest?.Content ?? string.Empty;
     }
 
     public async Task<bool> SaveManifestAsync(long chatId, string content, CancellationToken cancellationToken)
