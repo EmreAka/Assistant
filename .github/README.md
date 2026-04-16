@@ -8,7 +8,7 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 
 ## Current Status
 - The implementation is still intentionally small, but the core command and agent infrastructure is already in place.
-- The bot currently supports `/start`, `/chat`, `/expense`, and `/tefas`.
+- The bot currently supports `/start`, `/chat`, `/memory`, `/expense`, and `/tefas`.
 - Plain text messages without a slash command are routed to the `chat` command automatically.
 - The chat agent keeps a versioned long-term user memory manifest and can update it through tool calling.
 - Successful chat turns are persisted and recalled through PostgreSQL full-text search so the agent can pull relevant older conversation snippets.
@@ -27,6 +27,7 @@ The bot currently supports the following commands:
 | --- | --- |
 | `/start` | Registers the Telegram user and sends a welcome message. |
 | `/chat` | General-purpose chat entrypoint. The agent can answer questions, remember useful personal context, manage reminders/tasks, search the web when needed, and query saved expenses. |
+| `/memory` | Returns the active long-term `UserMemoryManifest` currently used to augment chat responses. |
 | `/expense` | Shows a deterministic expense overview, supports statement drill-down and category filters, and handles uploaded credit card statement PDFs. |
 | `/tefas` | Fetches live TEFAS fund data for a fund code and returns a short fund summary. |
 
@@ -35,6 +36,7 @@ Bot commands are registered with Telegram during application startup.
 Examples:
 - `/chat 5 saat sonra Mustafa abiyle toplantımı hatırlat`
 - `/chat NVIDIA stock price current`
+- `/memory`
 - `yarın sabah 9'da su içmeyi hatırlat`
 - `/expense`
 - `/expense 1`
@@ -46,6 +48,7 @@ Chat flow:
 - Memory is stored as versioned `UserMemoryManifest` records rather than individual memory rows.
 - Older chat turns are stored in `chat_turns` and searched through PostgreSQL full-text search.
 - Agent tools currently include web search, memory manifest update, task scheduling, current time lookup, and expense querying.
+- Run `/memory` to inspect the currently active manifest that is being injected into chat context.
 
 Expense flow:
 - Run `/expense` in a private chat to see a deterministic overview with total spend, transaction count, last-30-day spend, latest expense date, statement periods, and category totals.
@@ -90,6 +93,8 @@ Implementation notes:
   - Registers a Telegram user in the database.
 - `ChatCommand`
   - Invokes `AgentService`, persists successful chat turns, and sends responses through `TelegramResponseSender`.
+- `MemoryCommand`
+  - Fetches the active `UserMemoryManifest` for the current chat and sends it back to Telegram.
 - `AgentService`
   - Builds the `ChatClientAgent`, registers tools, injects personality/memory/task context, and runs chat-history lookup over persisted chat turns before each response.
 - `MemoryContextProvider`
