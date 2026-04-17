@@ -107,7 +107,11 @@ public class AgentService(
                 Sessions[chatId] = session;
             }
 
-            var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
+            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(_aiOptions.DefaultTimeZoneId);
+            var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone);
+            var stampedInput = $"[Sent at: {localNow:yyyy-MM-dd HH:mm:ss}]\n{userInput}";
+
+            var response = await agent.RunAsync(stampedInput, session, cancellationToken: cancellationToken);
             var usage = response.Usage;
             var requestCostUsd = CalculateRequestCostUsd(
                 usage?.InputTokenCount,
@@ -161,10 +165,11 @@ public class AgentService(
                - Do not use SearchWeb when the answer can be derived from the current conversation, saved memory, pending tasks, or stable general knowledge.
                - If SearchWeb returns uncertain or mixed results, say so briefly instead of overstating confidence.
 
-               Time tool rules:
-               - Use the GetCurrentDateTime tool whenever the answer depends on the current date, current time, today's date, day-of-week, or converting relative time phrases into exact dates.
-               - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions from memory; call GetCurrentDateTime first.
-               - When the user asks a time-sensitive question, prefer using the exact date returned by the tool in the response.
+               Time context rules:
+               - Every user message is prefixed with a [Sent at: YYYY-MM-DD HH:mm:ss] timestamp in the local timezone. This is the authoritative time of that message.
+               - Use this timestamp to reason about elapsed time, "just now", "a while ago", "6 hours later", etc.
+               - Use the GetCurrentDateTime tool only when you need the *current* time and the latest sent-at stamp is insufficient (e.g. the user asks "what time is it right now").
+               - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions — derive them from the sent-at stamp or call GetCurrentDateTime.
 
                Expense tool rules:
                - When the user asks about spending, expenses, where money went, totals for a period, or top merchants/descriptions, use the QueryExpenses tool before answering.
