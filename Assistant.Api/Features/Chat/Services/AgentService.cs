@@ -112,20 +112,6 @@ public class AgentService(
             var stampedInput = $"[Sent at: {localNow:yyyy-MM-dd HH:mm:ss}]\n{userInput}";
 
             var response = await agent.RunAsync(stampedInput, session, cancellationToken: cancellationToken);
-            var usage = response.Usage;
-            var requestCostUsd = CalculateRequestCostUsd(
-                usage?.InputTokenCount,
-                usage?.CachedInputTokenCount,
-                usage?.OutputTokenCount);
-
-            logger.LogInformation(
-                "Tokens in={Input} out={Output} total={Total} cached={Cached} reasoning={Reasoning} costUsd={CostUsd}",
-                usage?.InputTokenCount,
-                usage?.OutputTokenCount,
-                usage?.TotalTokenCount,
-                usage?.CachedInputTokenCount,
-                usage?.ReasoningTokenCount,
-                requestCostUsd);
 
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
@@ -180,28 +166,6 @@ public class AgentService(
                - For category-based questions ("yapay zekaya ne kadar para verdim", "AI subscriptions", "restaurants"), use searchText with relevant Turkish or English keywords that would appear in merchant names. You can also call with groupBy=description first to see all merchant names and identify the relevant ones.
                - If the expense tool says there is no matching data, say that clearly and suggest a broader filter only when useful.
                """;
-    }
-
-    private static decimal CalculateRequestCostUsd(
-        long? inputTokenCount,
-        long? cachedInputTokenCount,
-        long? outputTokenCount)
-    {
-        const decimal inputPricePerMillion = 0.25m;
-        const decimal cachedInputPricePerMillion = 0.025m;
-        const decimal outputPricePerMillion = 1.50m;
-        const decimal tokensPerMillion = 1_000_000m;
-
-        var totalInputTokens = Math.Max(0, inputTokenCount ?? 0);
-        var cachedInputTokens = Math.Min(Math.Max(0, cachedInputTokenCount ?? 0), totalInputTokens);
-        var uncachedInputTokens = totalInputTokens - cachedInputTokens;
-        var totalOutputTokens = Math.Max(0, outputTokenCount ?? 0);
-
-        var inputCost = uncachedInputTokens * inputPricePerMillion / tokensPerMillion;
-        var cachedInputCost = cachedInputTokens * cachedInputPricePerMillion / tokensPerMillion;
-        var outputCost = totalOutputTokens * outputPricePerMillion / tokensPerMillion;
-
-        return decimal.Round(inputCost + cachedInputCost + outputCost, 8, MidpointRounding.AwayFromZero);
     }
 
     private async Task<IEnumerable<TextSearchProvider.TextSearchResult>> SearchChatTurnsAsync(
