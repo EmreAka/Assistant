@@ -112,11 +112,11 @@ public class TefasAnalysisService(
 
         var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
 
-        return $$"""
+        return $"""
                  Review this TEFAS fund snapshot and write a short natural summary for the user.
                  Use only this structured data:
 
-                 {{json}}
+                 {json}
                  """;
     }
 

@@ -77,7 +77,7 @@ internal sealed class AssistantChatReducer(
         {
             new(
                 ChatRole.System,
-                $$"""
+                $"""
                   You compress older chat history for a personal Telegram assistant.
                   Return plain text only.
 
@@ -97,7 +97,7 @@ internal sealed class AssistantChatReducer(
                   - Keep chronology only when timing matters later.
                   - Do not invent facts.
                   - Do not include raw tool syntax or function-call traces.
-                  - Keep at most {{MaxSummaryBulletCount}} bullets total across all sections.
+                  - Keep at most {MaxSummaryBulletCount} bullets total across all sections.
                   """),
             new(ChatRole.User, BuildSummarizationInput(existingSummaryBody, transcript))
         };
@@ -144,19 +144,19 @@ internal sealed class AssistantChatReducer(
     {
         if (string.IsNullOrWhiteSpace(existingSummary))
         {
-            return $$"""
+            return $"""
                      Summarize these older turns for future conversational continuity:
 
-                     {{transcript}}
+                     {transcript}
                      """;
         }
 
-        return $$"""
+        return $"""
                  Existing rolling summary:
-                 {{existingSummary}}
+                 {existingSummary}
 
                  Update that summary using these newer old turns:
-                 {{transcript}}
+                 {transcript}
                  """;
     }
 

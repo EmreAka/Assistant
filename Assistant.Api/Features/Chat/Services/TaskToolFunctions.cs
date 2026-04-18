@@ -123,9 +123,9 @@ public class TaskToolFunctions(
                 .Select(FormatTaskLine)
                 .ToArray();
 
-            return $$"""
+            return $"""
                      Tasks for current chat:
-                     {{string.Join(Environment.NewLine, lines)}}
+                     {string.Join(Environment.NewLine, lines)}
                      """;
         }
         catch (Exception ex)

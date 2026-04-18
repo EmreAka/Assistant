@@ -198,11 +198,11 @@ public class AgentService(
             return string.Empty;
         }
 
-        return $$"""
+        return $"""
                  Relevant past chat turns:
                  Use these only if they help continue the current conversation or resolve references to something discussed earlier.
 
-                 {{string.Join(Environment.NewLine + Environment.NewLine, results.Select(x => x.Text))}}
+                 {string.Join(Environment.NewLine + Environment.NewLine, results.Select(x => x.Text))}
                  """;
     }
 
@@ -213,10 +213,10 @@ public class AgentService(
         var createdAtLocal = TimeZoneInfo.ConvertTimeFromUtc(ToUtc(result.CreatedAt), timeZoneInfo)
             .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
-        return $$"""
-                 [{{createdAtLocal}}]
-                 User: {{result.UserMessage}}
-                 Assistant: {{result.AssistantMessage}}
+        return $"""
+                 [{createdAtLocal}]
+                 User: {result.UserMessage}
+                 Assistant: {result.AssistantMessage}
                  """;
     }
 

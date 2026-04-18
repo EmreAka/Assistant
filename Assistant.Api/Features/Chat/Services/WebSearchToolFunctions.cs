@@ -59,14 +59,14 @@ public class WebSearchToolFunctions(
 
     private static string BuildSearchPrompt(string query)
     {
-        return $$"""
+        return $"""
                  Gather current public web information needed to answer the query.
                  Return a concise factual summary for another assistant to use.
                  Include only details directly relevant to the query.
                  If dates matter, include exact dates.
                  If the results are mixed or uncertain, say so briefly.
 
-                 Query: {{query}}
+                 Query: {query}
                  """;
     }
 }

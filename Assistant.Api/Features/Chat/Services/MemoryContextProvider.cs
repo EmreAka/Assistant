@@ -20,9 +20,9 @@ public class MemoryContextProvider(
 
         return new AIContext
         {
-            Instructions = $$"""
+            Instructions = $"""
                              User Knowledge Manifesto:
-                             {{manifest}}
+                             {manifest}
                              """
         };
     }

@@ -51,9 +51,9 @@ public class PendingTaskContextProvider(
 
         return new AIContext
         {
-            Instructions = $$"""
+            Instructions = $"""
                              Open loops and pending tasks:
-                             {{string.Join(Environment.NewLine, taskLines)}}
+                             {string.Join(Environment.NewLine, taskLines)}
 
                              Use this only when relevant.
                              These lines include Task IDs. Reuse the exact Task ID when cancelling or rescheduling.

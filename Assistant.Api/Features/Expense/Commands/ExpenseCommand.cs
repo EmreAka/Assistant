@@ -184,8 +184,8 @@ public class ExpenseCommand(
             return message;
         }
 
-        return $$"""
-                 {{message}}
+        return $"""
+                 {message}
 
                  Harcama sorularını normal sohbette sorabilirsin.
                  """;

@@ -69,18 +69,18 @@ public class MemoryConsolidationAgentService(
 
         var transcript = string.Join(
             Environment.NewLine + Environment.NewLine,
-            request.Turns.Select(turn => $$"""
-                                            [{{turn.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}} UTC]
-                                            User: {{turn.UserMessage}}
-                                            Assistant: {{turn.AssistantMessage}}
+            request.Turns.Select(turn => $"""
+                                            [{turn.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)} UTC]
+                                            User: {turn.UserMessage}
+                                            Assistant: {turn.AssistantMessage}
                                             """));
 
-        return $$"""
+        return $"""
                  Existing manifest:
-                 {{manifest}}
+                 {manifest}
 
                  New chat turns to incorporate:
-                 {{transcript}}
+                 {transcript}
                  """;
     }
 }

@@ -35,12 +35,12 @@ public class MemoryCommand(
             return;
         }
 
-        var response = $$"""
+        var response = $"""
                          *🧠 Aktif Memory*
-                         Versiyon: {{manifest.Version}}
-                         Güncellendi: {{manifest.UpdatedAt:dd.MM.yyyy HH:mm}} UTC
+                         Versiyon: {manifest.Version}
+                         Güncellendi: {manifest.UpdatedAt:dd.MM.yyyy HH:mm} UTC
 
-                         {{manifest.Content}}
+                         {manifest.Content}
                          """;
 
         await responseSender.SendResponseAsync(chatId.Value, response, cancellationToken);
