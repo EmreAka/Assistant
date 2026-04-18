@@ -10,6 +10,8 @@ namespace Assistant.Api.Tests.ChatFeatures;
 
 public class TaskToolFunctionsTests
 {
+    private static readonly DateTimeOffset FixedUtcNow = new(2026, 4, 18, 9, 30, 0, TimeSpan.Zero);
+
     [Fact]
     public async Task ScheduleTask_CreatesOneTimeTask_AndReturnsTaskId()
     {
@@ -33,14 +35,27 @@ public class TaskToolFunctionsTests
     }
 
     [Fact]
+    public async Task ScheduleTask_ReturnsPastError_WhenRequestedTimeIsNotInFuture()
+    {
+        await using var dbContext = CreateDbContext(nameof(ScheduleTask_ReturnsPastError_WhenRequestedTimeIsNotInFuture));
+        var tool = CreateTool(1001, dbContext, new FakeDeferredIntentScheduler());
+        var runAtLocalIso = GetLocalIso(FixedUtcNow.AddHours(-1));
+
+        var result = await tool.ScheduleTask("Too late", runAtLocalIso: runAtLocalIso);
+
+        Assert.Equal("Error: Cannot schedule a task in the past.", result);
+        Assert.Empty(dbContext.DeferredIntents);
+    }
+
+    [Fact]
     public async Task ListTasks_ActiveFilter_IncludesScheduledAndRecurring_ButNotCancelled()
     {
         await using var dbContext = CreateDbContext(nameof(ListTasks_ActiveFilter_IncludesScheduledAndRecurring_ButNotCancelled));
         dbContext.DeferredIntents.AddRange(
-            CreateIntent(1001, DeferredIntentStatuses.Scheduled, "Tomorrow reminder", scheduledAtUtc: DateTime.UtcNow.AddHours(4)),
+            CreateIntent(1001, DeferredIntentStatuses.Scheduled, "Tomorrow reminder", scheduledAtUtc: FixedUtcNow.UtcDateTime.AddHours(4)),
             CreateIntent(1001, DeferredIntentStatuses.Recurring, "Daily standup", cronExpression: "0 9 * * *"),
-            CreateIntent(1001, DeferredIntentStatuses.Cancelled, "Old cancelled reminder", scheduledAtUtc: DateTime.UtcNow.AddHours(6)),
-            CreateIntent(2002, DeferredIntentStatuses.Scheduled, "Other chat task", scheduledAtUtc: DateTime.UtcNow.AddHours(2)));
+            CreateIntent(1001, DeferredIntentStatuses.Cancelled, "Old cancelled reminder", scheduledAtUtc: FixedUtcNow.UtcDateTime.AddHours(6)),
+            CreateIntent(2002, DeferredIntentStatuses.Scheduled, "Other chat task", scheduledAtUtc: FixedUtcNow.UtcDateTime.AddHours(2)));
         await dbContext.SaveChangesAsync();
 
         var result = await CreateTool(1001, dbContext, new FakeDeferredIntentScheduler()).ListTasks();
@@ -87,7 +102,7 @@ public class TaskToolFunctionsTests
             1001,
             DeferredIntentStatuses.Scheduled,
             "Check portfolio",
-            scheduledAtUtc: DateTime.UtcNow.AddHours(5),
+            scheduledAtUtc: FixedUtcNow.UtcDateTime.AddHours(5),
             hangfireJobId: "job-old");
         dbContext.DeferredIntents.Add(intent);
         await dbContext.SaveChangesAsync();
@@ -105,6 +120,7 @@ public class TaskToolFunctionsTests
         Assert.Contains("job-old", scheduler.DeletedOneTimeJobIds);
         Assert.Single(scheduler.ScheduledRecurringTasks);
         Assert.Equal(intent.IntentId, scheduler.ScheduledRecurringTasks[0].IntentId);
+        Assert.Equal("Europe/Istanbul", scheduler.ScheduledRecurringTasks[0].TimeZoneId);
     }
 
     private static TaskToolFunctions CreateTool(long chatId, ApplicationDbContext dbContext, FakeDeferredIntentScheduler scheduler)
@@ -113,10 +129,7 @@ public class TaskToolFunctionsTests
             chatId,
             dbContext,
             scheduler,
-            Options.Create(new AiProvidersOptions
-            {
-                DefaultTimeZoneId = "Europe/Istanbul"
-            }),
+            CreateTimeService(),
             NullLogger<TaskToolFunctions>.Instance);
     }
 
@@ -129,10 +142,25 @@ public class TaskToolFunctionsTests
         return new TestApplicationDbContext(options);
     }
 
+    private static IAssistantTimeService CreateTimeService()
+    {
+        return new AssistantTimeService(
+            Options.Create(new AiProvidersOptions
+            {
+                DefaultTimeZoneId = "Europe/Istanbul"
+            }),
+            new FixedTimeProvider(FixedUtcNow));
+    }
+
     private static string GetFutureLocalIso(TimeSpan offset)
     {
+        return GetLocalIso(FixedUtcNow.Add(offset));
+    }
+
+    private static string GetLocalIso(DateTimeOffset utcTime)
+    {
         var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul");
-        var futureLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow.Add(offset), timeZoneInfo);
+        var futureLocal = TimeZoneInfo.ConvertTimeFromUtc(utcTime.UtcDateTime, timeZoneInfo);
         return futureLocal.ToString("yyyy-MM-ddTHH:mm:ss");
     }
 
@@ -190,6 +218,11 @@ public class TaskToolFunctionsTests
         {
             DeletedRecurringJobIds.Add(recurringJobId);
         }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed class TestApplicationDbContext(DbContextOptions<ApplicationDbContext> options)

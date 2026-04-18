@@ -57,6 +57,8 @@ public static class BotServiceRegistration
             new TelegramBotClient(
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
 
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<IAssistantTimeService, AssistantTimeService>();
         services.AddSingleton<ITelegramResponseSender, TelegramResponseSender>();
         services.AddScoped<IDeferredIntentScheduler, DeferredIntentScheduler>();
         services.AddScoped<IChatTurnService, ChatTurnService>();

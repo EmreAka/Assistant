@@ -1,5 +1,6 @@
 using Assistant.Api.Data;
 using Assistant.Api.Extensions;
+using Assistant.Api.Features.Chat.Services;
 using Hangfire;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,6 +21,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddBotServices(builder.Configuration);
 
 var app = builder.Build();
+_ = app.Services.GetRequiredService<IAssistantTimeService>();
 await app.UseDatabaseMigrationsAsync();
 
 // Configure the HTTP request pipeline.

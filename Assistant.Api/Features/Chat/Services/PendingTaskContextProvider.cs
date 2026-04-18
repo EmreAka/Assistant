@@ -8,6 +8,7 @@ namespace Assistant.Api.Features.Chat.Services;
 public class PendingTaskContextProvider(
     long chatId,
     ApplicationDbContext dbContext,
+    IAssistantTimeService assistantTimeService,
     int maxTasks = 8
 ) : AIContextProvider
 {
@@ -20,7 +21,7 @@ public class PendingTaskContextProvider(
             return new AIContext();
         }
 
-        var nowUtc = DateTime.UtcNow;
+        var nowUtc = assistantTimeService.UtcNow;
 
         var pendingTasks = await dbContext.DeferredIntents
             .AsNoTracking()
@@ -44,7 +45,7 @@ public class PendingTaskContextProvider(
             .Select(task =>
             {
                 var timing = task.IsRecurring ? "recurring" : BuildTimingLabel(task.ScheduledAtUtc ?? DateTime.MinValue, nowUtc);
-                var schedule = task.IsRecurring ? $"Cron: {task.CronExpression}" : FormatScheduledTime(task);
+                var schedule = task.IsRecurring ? $"Cron: {task.CronExpression}" : FormatScheduledTime(task, assistantTimeService);
                 return $"- Task ID: {task.IntentId} | [{timing}] {schedule}: {task.OriginalInstruction}";
             })
             .ToArray();
@@ -67,22 +68,13 @@ public class PendingTaskContextProvider(
         return scheduledAtUtc <= nowUtc ? "overdue" : "scheduled";
     }
 
-    private static string FormatScheduledTime(DeferredIntent task)
+    private static string FormatScheduledTime(DeferredIntent task, IAssistantTimeService assistantTimeService)
     {
         if (!task.ScheduledAtUtc.HasValue) return "Unscheduled";
-        try
-        {
-            var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(task.TimeZoneId);
-            var localTime = TimeZoneInfo.ConvertTimeFromUtc(task.ScheduledAtUtc.Value, timeZoneInfo);
-            return $"{localTime:yyyy-MM-dd HH:mm} {task.TimeZoneId}";
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return $"{task.ScheduledAtUtc.Value:yyyy-MM-dd HH:mm} UTC";
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return $"{task.ScheduledAtUtc.Value:yyyy-MM-dd HH:mm} UTC";
-        }
+
+        var displayTime = assistantTimeService.FormatUtcForDisplay(task.ScheduledAtUtc.Value, task.TimeZoneId, "yyyy-MM-dd HH:mm");
+        return displayTime.EndsWith(" UTC", StringComparison.Ordinal)
+            ? displayTime
+            : $"{displayTime} {task.TimeZoneId}";
     }
 }

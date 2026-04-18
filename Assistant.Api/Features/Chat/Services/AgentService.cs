@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Globalization;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
@@ -17,6 +16,7 @@ public class AgentService(
     IChatTurnService chatTurnService,
     ApplicationDbContext dbContext,
     IDeferredIntentScheduler deferredIntentScheduler,
+    IAssistantTimeService assistantTimeService,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<TaskToolFunctions> taskToolLogger,
@@ -36,8 +36,8 @@ public class AgentService(
     {
         try
         {
-            var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, aiOptions, taskToolLogger);
-            var timeToolFunctions = new TimeToolFunctions(aiOptions);
+            var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, assistantTimeService, taskToolLogger);
+            var timeToolFunctions = new TimeToolFunctions(assistantTimeService);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
             var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
             var chatHistorySearchProvider = new TextSearchProvider(
@@ -89,7 +89,7 @@ public class AgentService(
                         new PersonalityContextProvider(chatId, personalityService),
                         new MemoryContextProvider(chatId, memoryService),
                         chatHistorySearchProvider,
-                        new PendingTaskContextProvider(chatId, dbContext)
+                        new PendingTaskContextProvider(chatId, dbContext, assistantTimeService)
                     ],
 #pragma warning disable MEAI001
                     ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
@@ -107,8 +107,7 @@ public class AgentService(
                 Sessions[chatId] = session;
             }
 
-            var timeZone = TimeZoneInfo.FindSystemTimeZoneById(_aiOptions.DefaultTimeZoneId);
-            var localNow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, timeZone);
+            var localNow = assistantTimeService.GetLocalNow();
             var stampedInput = $"[Sent at: {localNow:yyyy-MM-dd HH:mm:ss}]\n{userInput}";
 
             var response = await agent.RunAsync(stampedInput, session, cancellationToken: cancellationToken);
@@ -180,13 +179,11 @@ public class AgentService(
             return [];
         }
 
-        var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(_aiOptions.DefaultTimeZoneId);
-
         return results
             .Select(result => new TextSearchProvider.TextSearchResult
             {
-                SourceName = $"Past chat turn from {TimeZoneInfo.ConvertTimeFromUtc(ToUtc(result.CreatedAt), timeZoneInfo):yyyy-MM-dd HH:mm:ss}",
-                Text = FormatChatTurnSearchResult(result, timeZoneInfo)
+                SourceName = $"Past chat turn from {assistantTimeService.FormatUtcForDisplay(result.CreatedAt, assistantTimeService.DefaultTimeZoneId, "yyyy-MM-dd HH:mm:ss")}",
+                Text = FormatChatTurnSearchResult(result, assistantTimeService)
             })
             .ToArray();
     }
@@ -208,25 +205,17 @@ public class AgentService(
 
     private static string FormatChatTurnSearchResult(
         ChatTurnSearchResult result,
-        TimeZoneInfo timeZoneInfo)
+        IAssistantTimeService assistantTimeService)
     {
-        var createdAtLocal = TimeZoneInfo.ConvertTimeFromUtc(ToUtc(result.CreatedAt), timeZoneInfo)
-            .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        var createdAtLocal = assistantTimeService.FormatUtcForDisplay(
+            result.CreatedAt,
+            assistantTimeService.DefaultTimeZoneId,
+            "yyyy-MM-dd HH:mm:ss");
 
         return $"""
                  [{createdAtLocal}]
                  User: {result.UserMessage}
                  Assistant: {result.AssistantMessage}
                  """;
-    }
-
-    private static DateTime ToUtc(DateTime value)
-    {
-        return value.Kind switch
-        {
-            DateTimeKind.Utc => value,
-            DateTimeKind.Local => value.ToUniversalTime(),
-            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
-        };
     }
 }

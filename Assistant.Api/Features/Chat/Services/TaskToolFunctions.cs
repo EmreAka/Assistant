@@ -1,10 +1,8 @@
 using System.ComponentModel;
 using System.Globalization;
 using Assistant.Api.Data;
-using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Features.Chat.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace Assistant.Api.Features.Chat.Services;
 
@@ -12,7 +10,7 @@ public class TaskToolFunctions(
     long chatId,
     ApplicationDbContext dbContext,
     IDeferredIntentScheduler deferredIntentScheduler,
-    IOptions<AiProvidersOptions> aiOptions,
+    IAssistantTimeService assistantTimeService,
     ILogger<TaskToolFunctions> logger
 )
 {
@@ -26,8 +24,8 @@ public class TaskToolFunctions(
     {
         try
         {
-            var timeZoneId = aiOptions.Value.DefaultTimeZoneId;
-            var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var timeZoneId = assistantTimeService.DefaultTimeZoneId;
+            var timeZoneInfo = assistantTimeService.DefaultTimeZone;
 
             var hasRunAt = !string.IsNullOrWhiteSpace(runAtLocalIso);
             var hasCron = !string.IsNullOrWhiteSpace(cronExpression);
@@ -54,8 +52,8 @@ public class TaskToolFunctions(
                     return "Error: Invalid date/time format. Use ISO 8601.";
                 }
 
-                var runAtUtc = TimeZoneInfo.ConvertTimeToUtc(localDateTime, timeZoneInfo);
-                if (runAtUtc <= DateTime.UtcNow)
+                var runAtUtc = assistantTimeService.ConvertLocalToUtc(localDateTime);
+                if (runAtUtc <= assistantTimeService.UtcNow)
                 {
                     return "Error: Cannot schedule a task in the past.";
                 }
@@ -120,7 +118,7 @@ public class TaskToolFunctions(
             }
 
             var lines = tasks
-                .Select(FormatTaskLine)
+                .Select(task => FormatTaskLine(task, assistantTimeService))
                 .ToArray();
 
             return $"""
@@ -211,8 +209,8 @@ public class TaskToolFunctions(
                 return "Error: Existing Hangfire job could not be replaced, so the task was left unchanged.";
             }
 
-            var timeZoneId = aiOptions.Value.DefaultTimeZoneId;
-            var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            var timeZoneId = assistantTimeService.DefaultTimeZoneId;
+            var timeZoneInfo = assistantTimeService.DefaultTimeZone;
             intent.TimeZoneId = timeZoneId;
 
             if (hasRunAt)
@@ -222,8 +220,8 @@ public class TaskToolFunctions(
                     return "Error: Invalid date/time format. Use ISO 8601.";
                 }
 
-                var runAtUtc = TimeZoneInfo.ConvertTimeToUtc(localDateTime, timeZoneInfo);
-                if (runAtUtc <= DateTime.UtcNow)
+                var runAtUtc = assistantTimeService.ConvertLocalToUtc(localDateTime);
+                if (runAtUtc <= assistantTimeService.UtcNow)
                 {
                     return "Error: Cannot schedule a task in the past.";
                 }
@@ -320,35 +318,25 @@ public class TaskToolFunctions(
         return Guid.TryParse(taskId, out intentId);
     }
 
-    private static string FormatTaskLine(DeferredIntent intent)
+    private static string FormatTaskLine(DeferredIntent intent, IAssistantTimeService assistantTimeService)
     {
         var schedule = intent.IsRecurring
             ? $"Cron: {intent.CronExpression}"
-            : FormatScheduledTime(intent);
+            : FormatScheduledTime(intent, assistantTimeService);
 
         return $"- Task ID: {intent.IntentId} | Status: {intent.Status} | Schedule: {schedule} | Instruction: {intent.OriginalInstruction}";
     }
 
-    private static string FormatScheduledTime(DeferredIntent task)
+    private static string FormatScheduledTime(DeferredIntent task, IAssistantTimeService assistantTimeService)
     {
         if (!task.ScheduledAtUtc.HasValue)
         {
             return "Unscheduled";
         }
 
-        try
-        {
-            var timeZoneInfo = TimeZoneInfo.FindSystemTimeZoneById(task.TimeZoneId);
-            var localTime = TimeZoneInfo.ConvertTimeFromUtc(task.ScheduledAtUtc.Value, timeZoneInfo);
-            return $"{localTime:yyyy-MM-dd HH:mm:ss} {task.TimeZoneId}";
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return $"{task.ScheduledAtUtc.Value:yyyy-MM-dd HH:mm:ss} UTC";
-        }
-        catch (InvalidTimeZoneException)
-        {
-            return $"{task.ScheduledAtUtc.Value:yyyy-MM-dd HH:mm:ss} UTC";
-        }
+        var displayTime = assistantTimeService.FormatUtcForDisplay(task.ScheduledAtUtc.Value, task.TimeZoneId, "yyyy-MM-dd HH:mm:ss");
+        return displayTime.EndsWith(" UTC", StringComparison.Ordinal)
+            ? displayTime
+            : $"{displayTime} {task.TimeZoneId}";
     }
 }
