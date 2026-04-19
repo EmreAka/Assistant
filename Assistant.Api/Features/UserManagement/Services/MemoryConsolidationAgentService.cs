@@ -21,7 +21,7 @@ public class MemoryConsolidationAgentService(
             return request.CurrentManifest;
         }
 
-        var chatClient = _aiOptions.XAI.CreateXAIChatClient();
+        var chatClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIChatClient();
 
         var messages = new List<ChatMessage>
         {
@@ -34,7 +34,7 @@ public class MemoryConsolidationAgentService(
             new ChatOptions
             {
                 Temperature = 0.2f,
-                ModelId = _aiOptions.XAI.Model
+                ModelId = _aiOptions.GoogleAIStudio.Model
             },
             cancellationToken);
 
