@@ -88,6 +88,7 @@ public class AgentService(
                     [
                         new PersonalityContextProvider(chatId, personalityService),
                         new MemoryContextProvider(chatId, memoryService),
+                        new TemporalContextProvider(chatId, dbContext, assistantTimeService),
                         chatHistorySearchProvider,
                         new PendingTaskContextProvider(chatId, dbContext, assistantTimeService)
                     ],
@@ -107,10 +108,7 @@ public class AgentService(
                 Sessions[chatId] = session;
             }
 
-            var localNow = assistantTimeService.GetLocalNow();
-            var stampedInput = $"[Sent at: {localNow:yyyy-MM-dd HH:mm:ss}]\n{userInput}";
-
-            var response = await agent.RunAsync(stampedInput, session, cancellationToken: cancellationToken);
+            var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
 
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
@@ -137,7 +135,8 @@ public class AgentService(
 
                Task scheduling rules:
                - Use the ScheduleTask tool when the user asks you to remind them later, check something at a specific time, or perform an action in the future.
-               - Always call GetCurrentDateTime BEFORE using ScheduleTask if you need to resolve relative time expressions like "tomorrow" or "in 2 hours".
+               - Use Temporal Context to resolve relative time expressions before scheduling.
+               - Call GetCurrentDateTime before scheduling only when Temporal Context is missing, stale, or unavailable in the current execution path.
                - Check pending tasks and open loops before scheduling a duplicate task.
                - Use ListTasks when the user asks what tasks or reminders are active, pending, overdue, or recurring.
                - Use CancelTask when the user asks to cancel, stop, remove, or disable an existing task or reminder.
@@ -151,10 +150,12 @@ public class AgentService(
                - If SearchWeb returns uncertain or mixed results, say so briefly instead of overstating confidence.
 
                Time context rules:
-               - Every user message is prefixed with a [Sent at: YYYY-MM-DD HH:mm:ss] timestamp in the local timezone. This is the authoritative time of that message.
-               - Use this timestamp to reason about elapsed time, "just now", "a while ago", "6 hours later", etc.
-               - Use the GetCurrentDateTime tool only when you need the *current* time and the latest sent-at stamp is insufficient (e.g. the user asks "what time is it right now").
-               - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions — derive them from the sent-at stamp or call GetCurrentDateTime.
+               - Temporal Context is authoritative for conversation time grounding.
+               - Use Temporal Context silently for relative dates, elapsed time, pacing, urgency, and continuity.
+               - Do not calculate elapsed time yourself when Temporal Context already provides it.
+               - Do not mention exact time values or time math unless the user asks or it materially helps.
+               - Call GetCurrentDateTime only if Temporal Context is missing, stale, or the user explicitly asks for the current time.
+               - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions. Derive them from Temporal Context, or call GetCurrentDateTime only when Temporal Context cannot answer.
 
                Expense tool rules:
                - When the user asks about spending, expenses, where money went, totals for a period, or top merchants/descriptions, use the QueryExpenses tool before answering.
