@@ -168,10 +168,10 @@ public class AgentService(
                Expense tool rules:
                - When the user asks about spending, expenses, where money went, totals for a period, or top merchants/descriptions, use the QueryExpenses tool before answering.
                - Do not invent expense totals, dates, trends, merchants, or categories without using the expense tool.
-               - Each expense has a category field (e.g. "Subscriptions & Software", "Food & Dining"). Use searchText for keyword filtering; category information is present in results for you to reason over.
+               - Each expense has a category field (e.g. "Subscriptions & Software", "Food & Dining"). Use category for exact category filtering, groupBy=category to inspect category totals, and searchText only for merchant or description keyword filtering.
                - For relative dates like "last month" or "this week", resolve them into exact date filters and prefer mentioning exact date ranges in the response.
                - For period-based questions ("bu dönem", "this billing period", "current statement"), first call QueryExpenses with groupBy=statement to get available credit card periods ordered by date, pick the most recent period's GroupKey as the fingerprint, then call QueryExpenses again with that statementFingerprint to get the actual expenses or totals.
-               - For category-based questions ("yapay zekaya ne kadar para verdim", "AI subscriptions", "restaurants"), use searchText with relevant Turkish or English keywords that would appear in merchant names. You can also call with groupBy=description first to see all merchant names and identify the relevant ones.
+               - For category-based questions, use the category filter when the request maps to a known category, or call QueryExpenses with groupBy=category and summaryMode=aggregate first to discover available categories. For merchant/theme questions that do not map to a category, use searchText or groupBy=description to identify matching merchants.
                - If the expense tool says there is no matching data, say that clearly and suggest a broader filter only when useful.
                """;
     }

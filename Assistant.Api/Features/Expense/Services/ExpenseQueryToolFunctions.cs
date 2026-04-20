@@ -48,8 +48,10 @@ public class ExpenseQueryToolFunctions(
     {
         WriteIndented = true
     };
+    private const string NpgsqlProviderName = "Npgsql.EntityFrameworkCore.PostgreSQL";
+    private const string LikeEscapeCharacter = "\\";
 
-    [Description("Queries the current user's expense records with safe read-only filters. Use this tool before answering spending questions. It can return a limited transaction list or aggregated summaries grouped by day, month, description, or statement. Use groupBy=statement to list all imported credit card billing periods (one row per PDF); each row contains a fingerprint you can pass to statementFingerprint to filter a specific period.")]
+    [Description("Queries the current user's expense records with safe read-only filters. Use this tool before answering spending questions. It can return a limited transaction list or aggregated summaries grouped by day, month, category, description, or statement. Use groupBy=category to discover available categories and totals. Use groupBy=statement to list all imported credit card billing periods (one row per PDF); each row contains a fingerprint you can pass to statementFingerprint to filter a specific period.")]
     public async Task<string> QueryExpenses(
         [Description("Start date in ISO format yyyy-MM-dd. Leave null when no lower date bound is needed.")] string? startDate = null,
         [Description("End date in ISO format yyyy-MM-dd. Leave null when no upper date bound is needed.")] string? endDate = null,
@@ -58,9 +60,10 @@ public class ExpenseQueryToolFunctions(
         [Description("Optional maximum amount filter in TRY.")] decimal? maxAmount = null,
         [Description("Maximum number of rows or groups to return. Use a small value unless the user explicitly asks for more detail.")] int? limit = null,
         [Description("Sort order. Allowed values: date_desc, date_asc, amount_desc, amount_asc, total_desc, total_asc.")] string? sortBy = null,
-        [Description("Grouping mode. Allowed values: none, day, month, description, statement. Use statement to list billing periods.")] string? groupBy = null,
+        [Description("Grouping mode. Allowed values: none, day, month, category, description, statement. Use category to list category totals. Use statement to list billing periods.")] string? groupBy = null,
         [Description("Response mode. Allowed values: list or aggregate.")] string? summaryMode = null,
-        [Description("Optional statement fingerprint to restrict results to a single credit card billing period. Obtain fingerprints by calling with groupBy=statement first.")] string? statementFingerprint = null)
+        [Description("Optional statement fingerprint to restrict results to a single credit card billing period. Obtain fingerprints by calling with groupBy=statement first.")] string? statementFingerprint = null,
+        [Description("Optional exact expense category filter, matched case-insensitively after trimming and normalizing spaces. Use groupBy=category first to discover category names when needed.")] string? category = null)
     {
         try
         {
@@ -126,6 +129,20 @@ public class ExpenseQueryToolFunctions(
             {
                 var trimmedSearch = searchText.Trim();
                 query = query.Where(x => x.Description.Contains(trimmedSearch));
+            }
+
+            var normalizedCategory = NormalizeCategory(category);
+            if (!string.IsNullOrEmpty(normalizedCategory))
+            {
+                if (string.Equals(dbContext.Database.ProviderName, NpgsqlProviderName, StringComparison.Ordinal))
+                {
+                    var categoryPattern = EscapeLikePattern(NormalizeCategoryText(category));
+                    query = query.Where(x => EF.Functions.ILike(x.Category.Trim(), categoryPattern, LikeEscapeCharacter));
+                }
+                else
+                {
+                    query = query.Where(x => x.Category.Trim().Equals(normalizedCategory, StringComparison.CurrentCultureIgnoreCase));
+                }
             }
 
             if (minAmount.HasValue)
@@ -333,6 +350,43 @@ public class ExpenseQueryToolFunctions(
                 .ToList();
         }
 
+        if (groupBy == "category")
+        {
+            var groupedQuery = query
+                .GroupBy(x => x.Category)
+                .Select(g => new
+                {
+                    GroupKey = g.Key,
+                    Count = g.Count(),
+                    TotalAmount = g.Sum(x => x.Amount),
+                    AverageAmount = g.Average(x => x.Amount),
+                    FirstExpenseDate = g.Min(x => x.ExpenseDate),
+                    LastExpenseDate = g.Max(x => x.ExpenseDate)
+                });
+
+            var sortedQuery = sortBy switch
+            {
+                "total_asc" => groupedQuery.OrderBy(x => x.TotalAmount).ThenBy(x => x.GroupKey),
+                "date_asc" => groupedQuery.OrderBy(x => x.FirstExpenseDate).ThenBy(x => x.GroupKey),
+                "date_desc" => groupedQuery.OrderByDescending(x => x.FirstExpenseDate).ThenBy(x => x.GroupKey),
+                _ => groupedQuery.OrderByDescending(x => x.TotalAmount).ThenBy(x => x.GroupKey)
+            };
+
+            var groups = await sortedQuery
+                .Take(limit)
+                .ToListAsync(CancellationToken.None);
+
+            return groups
+                .Select(x => new ExpenseAggregateRow(
+                    x.GroupKey,
+                    x.Count,
+                    x.TotalAmount,
+                    x.AverageAmount,
+                    x.FirstExpenseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                    x.LastExpenseDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)))
+                .ToList();
+        }
+
         var descriptionGroups = query
             .GroupBy(x => x.Description)
             .Select(g => new
@@ -385,10 +439,36 @@ public class ExpenseQueryToolFunctions(
         {
             "day" => "day",
             "month" => "month",
+            "category" => "category",
             "description" => "description",
             "statement" => "statement",
             _ => "none"
         };
+    }
+
+    private static string NormalizeCategory(string? value)
+    {
+        return NormalizeCategoryText(value).ToUpperInvariant();
+    }
+
+    private static string NormalizeCategoryText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return string.Join(
+            ' ',
+            value.Split(' ', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string EscapeLikePattern(string value)
+    {
+        return value
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
     }
 
     private static string NormalizeSummaryMode(string? value)
