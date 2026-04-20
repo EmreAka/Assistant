@@ -40,6 +40,7 @@ public class AgentService(
             var timeToolFunctions = new TimeToolFunctions(assistantTimeService);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
             var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
+            var mathToolFunctions = new MathToolFunctions();
             var chatHistorySearchProvider = new TextSearchProvider(
                 (query, ct) => SearchChatTurnsAsync(chatId, query, chatTurnService, ct),
                 new TextSearchProviderOptions
@@ -58,7 +59,8 @@ public class AgentService(
                 AIFunctionFactory.Create(taskToolFunctions.CancelTask),
                 AIFunctionFactory.Create(taskToolFunctions.RescheduleTask),
                 AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime),
-                AIFunctionFactory.Create(expenseToolFunctions.QueryExpenses)
+                AIFunctionFactory.Create(expenseToolFunctions.QueryExpenses),
+                AIFunctionFactory.Create(mathToolFunctions.Calculate)
             };
 
             if (additionalTools != null)
@@ -156,6 +158,12 @@ public class AgentService(
                - Do not mention exact time values or time math unless the user asks or it materially helps.
                - Call GetCurrentDateTime only if Temporal Context is missing, stale, or the user explicitly asks for the current time.
                - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions. Derive them from Temporal Context, or call GetCurrentDateTime only when Temporal Context cannot answer.
+
+               Math calculation rules:
+               - Use the Calculate tool for exact arithmetic, percentages, powers, parentheses, common numeric functions, and multi-step numeric calculations.
+               - Translate natural language calculations into safe expressions such as percentOf(18, 250), round(10 / 3, 2), or (2 + 3)^2.
+               - For expense questions, call QueryExpenses first and use Calculate only for derived math from the returned data.
+               - For dates, elapsed time, schedules, or relative time expressions, use Temporal Context or GetCurrentDateTime instead of Calculate.
 
                Expense tool rules:
                - When the user asks about spending, expenses, where money went, totals for a period, or top merchants/descriptions, use the QueryExpenses tool before answering.
