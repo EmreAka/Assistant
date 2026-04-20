@@ -23,7 +23,7 @@ public class WebSearchToolFunctions(
         try
         {
             var options = aiProvidersOptions.Value.GoogleAIStudio;
-            var client = options.CreateGoogleGenAIClient();
+            await using var client = options.CreateGoogleGenAIClient();
 
             var response = await client.Models.GenerateContentAsync(
                 model: options.Model,
