@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
@@ -9,7 +10,6 @@ using Assistant.Api.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
-using Google.GenAI;
 using Google.GenAI.Types;
 
 namespace Assistant.Api.Features.Expense.Services;
@@ -186,7 +186,6 @@ public class ExpenseAnalysisService(
                         "Google Gen AI PDF extraction total mismatch. StatementTotal={StatementTotal} ExtractedTotal={ExtractedTotal}.",
                         statementTotal,
                         extractedTotal);
-                    return null;
                 }
             }
 
@@ -564,6 +563,6 @@ public sealed record ExpenseExtractionItem(
 
 public sealed record ExpenseExtractionResult(
     string? Currency,
-    decimal? StatementTotal,
+    [property: JsonPropertyName("statement_total")] decimal? StatementTotal,
     List<ExpenseExtractionItem>? Expenses
 );
