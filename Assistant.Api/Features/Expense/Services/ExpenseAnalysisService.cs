@@ -201,7 +201,7 @@ public class ExpenseAnalysisService(
     private async Task<string> RequestStructuredExpenseExtractionFromPdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
     {
         var options = _aiOptions.GoogleAIStudio;
-        using var client = options.CreateGoogleGenAIClient();
+        await using var client = options.CreateGoogleGenAIClient();
         var response = await client.Models.GenerateContentAsync(
             model: options.Model,
             contents: new Content
