@@ -111,6 +111,9 @@ public class AgentService(
 
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
 
+            LogUsageDetails(response.Usage);
+            
+
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
         catch (Exception ex)
@@ -118,6 +121,27 @@ public class AgentService(
             logger.LogError(ex, "Agent execution failed for ChatId: {ChatId}", chatId);
             throw;
         }
+    }
+
+    private void LogUsageDetails(UsageDetails? responseUsage)
+    {
+        if (responseUsage is null)
+        {
+            return;
+        }
+
+        var additionalCounts = responseUsage.AdditionalCounts is { Count: > 0 }
+            ? string.Join(", ", responseUsage.AdditionalCounts.Select(count => $"{count.Key}={count.Value}"))
+            : "none";
+
+        logger.LogInformation(
+            "Token usage: input={InputTokenCount}, output={OutputTokenCount}, total={TotalTokenCount}, cachedInput={CachedInputTokenCount}, reasoning={ReasoningTokenCount}, additionalCounts={AdditionalCounts}",
+            responseUsage.InputTokenCount,
+            responseUsage.OutputTokenCount,
+            responseUsage.TotalTokenCount,
+            responseUsage.CachedInputTokenCount,
+            responseUsage.ReasoningTokenCount,
+            additionalCounts);
     }
 
     private static string BuildChatInstructions()
