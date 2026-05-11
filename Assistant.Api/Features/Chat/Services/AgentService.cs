@@ -93,12 +93,12 @@ public class AgentService(
                         new MemoryContextProvider(chatId, memoryService),
                         new TemporalContextProvider(chatId, dbContext, assistantTimeService),
                         chatHistorySearchProvider,
-                        new PendingTaskContextProvider(chatId, dbContext, assistantTimeService)
+                        //new PendingTaskContextProvider(chatId, dbContext, assistantTimeService)
                     ],
 #pragma warning disable MEAI001
                     ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
                     {
-                        ChatReducer = new SummarizingChatReducer(summaryClient, 100, 20)
+                        ChatReducer = new SummarizingChatReducer(summaryClient, 24, 6)
                     })
 #pragma warning restore MEAI001
                 }
