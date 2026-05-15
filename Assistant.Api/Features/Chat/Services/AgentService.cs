@@ -73,8 +73,6 @@ public class AgentService(
                 .UseFunctionInvocation()
                 .Build();
 
-            using var summaryClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIChatClient();
-
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
 
             var agent = new ChatClientAgent(
@@ -98,7 +96,7 @@ public class AgentService(
 #pragma warning disable MEAI001
                     ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
                     {
-                        ChatReducer = new SummarizingChatReducer(summaryClient, 24, 6)
+                        ChatReducer = new SummarizingChatReducer(chatClient, 24, 6)
                     })
 #pragma warning restore MEAI001
                 }

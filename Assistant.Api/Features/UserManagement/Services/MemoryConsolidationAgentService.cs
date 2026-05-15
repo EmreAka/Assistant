@@ -21,7 +21,7 @@ public class MemoryConsolidationAgentService(
             return request.CurrentManifest;
         }
 
-        var consolidateClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIChatClient();
+        var consolidateClient = _aiOptions.XAI.CreateXAIChatClient();
 
         var messages = new List<ChatMessage>
         {
