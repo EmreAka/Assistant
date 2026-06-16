@@ -112,7 +112,7 @@ public class AgentService(
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
 
             LogUsageDetails(response.Usage);
-            
+
 
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
