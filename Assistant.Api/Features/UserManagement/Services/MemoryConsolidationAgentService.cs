@@ -23,16 +23,13 @@ public class MemoryConsolidationAgentService(
 
         var consolidateClient = _aiOptions.XAI.CreateXAIChatClient();
 
-        var messages = new List<ChatMessage>
-        {
-            new(ChatRole.System, BuildInstructions()),
-            new(ChatRole.User, BuildInput(request))
-        };
+        ChatMessage message = new(ChatRole.User, BuildInput(request));
 
         var response = await consolidateClient.GetResponseAsync(
-            messages,
+            message,
             new ChatOptions
             {
+                Instructions = BuildInstructions(),
                 Temperature = 0.2f
             },
             cancellationToken);

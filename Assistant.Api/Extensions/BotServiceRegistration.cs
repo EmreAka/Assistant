@@ -17,6 +17,7 @@ namespace Assistant.Api.Extensions;
 
 public static class BotServiceRegistration
 {
+    public const string DataLabHttpClientName = "DataLab";
     public const string MarkitdownHttpClientName = "Markitdown";
     public const string OpenRouterHttpClientName = "OpenRouter";
     public const string TefasHttpClientName = "Tefas";
@@ -27,8 +28,26 @@ public static class BotServiceRegistration
     {
         services.Configure<AiProvidersOptions>(configuration.GetSection("AIProviders"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
+        services.Configure<DataLabOptions>(configuration.GetSection("DataLab"));
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
 
+        services.AddHttpClient(DataLabHttpClientName, (provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<DataLabOptions>>().Value;
+
+            if (!string.IsNullOrWhiteSpace(options.ApiUrl))
+            {
+                client.BaseAddress = new Uri($"{options.ApiUrl.TrimEnd('/')}/", UriKind.Absolute);
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.ApiKey))
+            {
+                client.DefaultRequestHeaders.Add("X-API-Key", options.ApiKey);
+            }
+
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
         services.AddHttpClient(OpenRouterHttpClientName, (provider, client) =>
         {
             var options = provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter;
@@ -67,6 +86,7 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryConsolidationScheduler, MemoryConsolidationScheduler>();
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
+        services.AddScoped<IMarkdownConverter, DataLabMarkdownConverter>();
         services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
         services.AddScoped<IExpenseStatementBrowseService, ExpenseStatementBrowseService>();
         services.AddScoped<IAgentService, AgentService>();

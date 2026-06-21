@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -7,15 +8,17 @@ using System.Text.RegularExpressions;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
+using Microsoft.Agents.AI;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
-using Google.GenAI.Types;
 
 namespace Assistant.Api.Features.Expense.Services;
 
 public class ExpenseAnalysisService(
     ApplicationDbContext dbContext,
+    IMarkdownConverter markdownConverter,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<ExpenseAnalysisService> logger
 ) : IExpenseAnalysisService
@@ -25,65 +28,6 @@ public class ExpenseAnalysisService(
     {
         PropertyNameCaseInsensitive = true
     };
-    private static readonly Schema ExpenseExtractionSchema = JsonSerializer.Deserialize<Schema>(
-        """
-        {
-          "type": "object",
-          "properties": {
-            "currency": {
-              "type": "string",
-              "description": "Statement currency code, for example TRY."
-            },
-            "statement_total": {
-              "type": "number",
-              "nullable": true,
-              "description": "The explicit statement total relevant to the extracted expenses, or null if not trustworthy."
-            },
-            "expenses": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "date": {
-                    "type": "string",
-                    "format": "date",
-                    "description": "Expense date in ISO format yyyy-MM-dd."
-                  },
-                  "description": {
-                    "type": "string",
-                    "description": "Merchant or transaction description."
-                  },
-                  "amount": {
-                    "type": "number",
-                    "description": "Positive expense amount."
-                  },
-                  "currency": {
-                    "type": "string",
-                    "description": "Expense currency code."
-                  },
-                  "category": {
-                    "type": "string",
-                    "description": "Expense category from the fixed list: Food & Dining, Transportation, Shopping, Entertainment, Travel, Health & Pharmacy, Subscriptions & Software, Utilities & Bills, Education, Other."
-                  }
-                },
-                "required": [
-                  "date",
-                  "description",
-                  "amount",
-                  "currency",
-                  "category"
-                ]
-              }
-            }
-          },
-          "required": [
-            "currency",
-            "statement_total",
-            "expenses"
-          ]
-        }
-        """,
-        JsonOptions) ?? throw new InvalidOperationException("Expense extraction schema could not be created.");
 
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
 
@@ -100,7 +44,17 @@ public class ExpenseAnalysisService(
                 return new ExpenseAnalysisResponse(false, "PDF dosyası okunamadı.");
             }
 
-            var parsedStatement = await ExtractFromPdfWithGoogleGenAiAsync(pdfBytes, cancellationToken);
+            using var pdfMemoryStream = new MemoryStream(pdfBytes, writable: false);
+            var statementMarkdown = await markdownConverter.ConvertToMarkdownAsync(pdfMemoryStream, cancellationToken);
+            if (string.IsNullOrWhiteSpace(statementMarkdown))
+            {
+                logger.LogWarning("DataLab returned empty markdown for statement PDF.");
+                return new ExpenseAnalysisResponse(
+                    false,
+                    "Ekstre şu anda işlenemedi. Lütfen biraz sonra tekrar deneyin.");
+            }
+
+            var parsedStatement = await ExtractFromMarkdownWithGeminiAgentAsync(statementMarkdown, cancellationToken);
             if (parsedStatement is null)
             {
                 return new ExpenseAnalysisResponse(
@@ -157,89 +111,80 @@ public class ExpenseAnalysisService(
         return memoryStream.ToArray();
     }
 
-    private async Task<ParsedExpenseStatement?> ExtractFromPdfWithGoogleGenAiAsync(byte[] pdfBytes, CancellationToken cancellationToken)
+    private async Task<ParsedExpenseStatement?> ExtractFromMarkdownWithGeminiAgentAsync(string statementMarkdown, CancellationToken cancellationToken)
     {
         try
         {
             logger.LogInformation(
-                "Starting primary expense extraction via Google Gen AI PDF. PdfSizeBytes={PdfSizeBytes}",
-                pdfBytes.Length);
+                "Starting primary expense extraction via Gemini agent markdown. MarkdownLength={MarkdownLength}",
+                statementMarkdown.Length);
 
-            var extractionJson = await RequestStructuredExpenseExtractionFromPdfAsync(pdfBytes, cancellationToken);
-            if (!TryParseExtractionResult(extractionJson, out var extractionResult, out var validationError))
-            {
-                logger.LogWarning(
-                    "Google Gen AI PDF extraction returned invalid JSON. Error={Error} ResponsePreview={ResponsePreview}",
-                    validationError,
-                    TruncateForLog(extractionJson));
-                return null;
-            }
+            var result = await RequestStructuredExpenseExtractionFromMarkdownAsync(statementMarkdown, cancellationToken);
+            var expenses = RemoveOffsetTransactions(result.Transactions)
+                .Where(item => IsOutgoing(item.Direction))
+                .Select(item => new StatementExpenseItem(
+                    item.Date,
+                    item.Description,
+                    item.Amount,
+                    item.Currency,
+                    item.Category))
+                .OrderBy(item => item.Date)
+                .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Price)
+                .ToList();
 
-            if (extractionResult!.StatementTotal.HasValue)
-            {
-                var statementTotal = decimal.Round(extractionResult.StatementTotal.Value, 2, MidpointRounding.AwayFromZero);
-                var extractedTotal = decimal.Round(extractionResult.Expenses!.Sum(x => x.Amount), 2, MidpointRounding.AwayFromZero);
-
-                if (statementTotal != extractedTotal)
-                {
-                    logger.LogWarning(
-                        "Google Gen AI PDF extraction total mismatch. StatementTotal={StatementTotal} ExtractedTotal={ExtractedTotal}.",
-                        statementTotal,
-                        extractedTotal);
-                }
-            }
-
-            return MapExtractionResult(extractionResult);
+            return new ParsedExpenseStatement(
+                expenses,
+                expenses.Sum(x => x.Price),
+                result.Currency);
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Google Gen AI PDF extraction failed.");
+            logger.LogWarning(ex, "Gemini agent markdown extraction failed.");
             return null;
         }
     }
 
-    private async Task<string> RequestStructuredExpenseExtractionFromPdfAsync(byte[] pdfBytes, CancellationToken cancellationToken)
+    private async Task<ExpenseExtractionResult> RequestStructuredExpenseExtractionFromMarkdownAsync(string statementMarkdown, CancellationToken cancellationToken)
     {
         var options = _aiOptions.GoogleAIStudio;
-        await using var client = options.CreateGoogleGenAIClient();
-        var response = await client.Models.GenerateContentAsync(
-            model: options.Model,
-            contents: new Content
+        var responseFormat = BuildExpenseExtractionResponseFormat();
+        using var chatClient = options.CreateGoogleGenAIChatClient();
+        var agent = new ChatClientAgent(
+            chatClient,
+            new ChatClientAgentOptions
             {
-                Role = "user",
-                Parts =
-                [
-                    Part.FromText(BuildPdfUserPrompt()),
-                    Part.FromBytes(pdfBytes, "application/pdf")
-                ]
-            },
-            config: new GenerateContentConfig
-            {
-                SystemInstruction = new Content
+                ChatOptions = new ChatOptions
                 {
-                    Parts =
-                    [
-                        Part.FromText(BuildDraftExtractionInstructions())
-                    ]
-                },
-                ResponseMimeType = "application/json",
-                ResponseSchema = BuildExpenseExtractionSchema(),
-                Temperature = 0
+                    Instructions = BuildDraftExtractionInstructions(),
+                    Temperature = 0
+                }
+            });
+
+        var session = await agent.CreateSessionAsync(cancellationToken);
+        var response = await agent.RunAsync<ExpenseExtractionResult>(
+            BuildMarkdownUserPrompt(statementMarkdown),
+            session,
+            JsonOptions,
+            new AgentRunOptions
+            {
+                ResponseFormat = responseFormat
             },
             cancellationToken: cancellationToken);
 
-        var messageContent = response.Text?.Trim();
-
-        if (string.IsNullOrWhiteSpace(messageContent))
-        {
-            throw new InvalidOperationException("Google Gen AI PDF request returned empty content.");
-        }
-
         logger.LogInformation(
-            "Google Gen AI PDF extraction completed. ResponsePreview={ResponsePreview}",
-            TruncateForLog(messageContent));
+            "Gemini agent markdown extraction completed. TransactionCount={TransactionCount}",
+            response.Result.Transactions.Count);
 
-        return messageContent;
+        return response.Result;
+    }
+
+    private static ChatResponseFormatJson BuildExpenseExtractionResponseFormat()
+    {
+        return ChatResponseFormat.ForJsonSchema<ExpenseExtractionResult>(
+            JsonOptions,
+            schemaName: "expense_extraction",
+            schemaDescription: "Structured expense transactions extracted from a statement markdown document.");
     }
 
     private async Task<List<ExpenseModel>> SaveParsedExpensesAsync(
@@ -308,151 +253,21 @@ public class ExpenseAnalysisService(
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload)));
     }
 
-    private static bool TryParseExtractionResult(
-        string rawJson,
-        out ExpenseExtractionResult? result,
-        out string? error)
-    {
-        result = null;
-        error = null;
-
-        var jsonPayload = ExtractJsonObject(rawJson);
-        if (string.IsNullOrWhiteSpace(jsonPayload))
-        {
-            error = "Response did not contain a JSON object.";
-            return false;
-        }
-
-        try
-        {
-            result = JsonSerializer.Deserialize<ExpenseExtractionResult>(jsonPayload, JsonOptions);
-        }
-        catch (Exception ex)
-        {
-            error = $"JSON parse failed: {ex.Message}";
-            return false;
-        }
-
-        if (result is null)
-        {
-            error = "JSON payload could not be deserialized.";
-            return false;
-        }
-
-        if (result.Expenses is null || result.Expenses.Count == 0)
-        {
-            error = "No expenses were returned.";
-            return false;
-        }
-
-        var normalizedCurrency = NormalizeCurrency(result.Currency);
-        if (string.IsNullOrWhiteSpace(normalizedCurrency))
-        {
-            error = "Statement currency is missing.";
-            return false;
-        }
-
-        if (result.StatementTotal.HasValue && result.StatementTotal.Value <= 0)
-        {
-            error = "Statement total must be positive when provided.";
-            return false;
-        }
-
-        var normalizedExpenses = new List<ExpenseExtractionItem>(result.Expenses.Count);
-
-        foreach (var item in result.Expenses)
-        {
-            if (item is null)
-            {
-                error = "Expense item is null.";
-                return false;
-            }
-
-            if (!DateOnly.TryParseExact(item.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
-            {
-                error = $"Expense date is invalid: {item.Date}";
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(item.Description))
-            {
-                error = "Expense description is missing.";
-                return false;
-            }
-
-            if (item.Amount <= 0)
-            {
-                error = $"Expense amount must be positive for '{item.Description}'.";
-                return false;
-            }
-
-            var itemCurrency = NormalizeCurrency(item.Currency) ?? normalizedCurrency;
-            if (!string.Equals(itemCurrency, normalizedCurrency, StringComparison.Ordinal))
-            {
-                error = $"Mixed currencies are not supported in the same statement: {itemCurrency} vs {normalizedCurrency}.";
-                return false;
-            }
-
-            var normalizedDescription = Regex.Replace(item.Description.Trim(), @"\s+", " ");
-            normalizedExpenses.Add(item with
-            {
-                Description = normalizedDescription,
-                Currency = itemCurrency
-            });
-        }
-
-        if (normalizedExpenses.Count == 0)
-        {
-            error = "No expenses remained after validation.";
-            return false;
-        }
-
-        result = result with
-        {
-            Currency = normalizedCurrency,
-            Expenses = normalizedExpenses
-        };
-
-        return true;
-    }
-
-    private static ParsedExpenseStatement MapExtractionResult(ExpenseExtractionResult result)
-    {
-        var statementCurrency = result.Currency ?? throw new InvalidOperationException("Statement currency cannot be null after validation.");
-        var extractionItems = result.Expenses ?? throw new InvalidOperationException("Expenses cannot be null after validation.");
-
-        var expenses = extractionItems
-            .Select(item => new StatementExpenseItem(
-                DateOnly.ParseExact(item.Date!, "yyyy-MM-dd", CultureInfo.InvariantCulture),
-                item.Description!,
-                item.Amount,
-                item.Currency ?? statementCurrency,
-                item.Category ?? "Other"))
-            .OrderBy(item => item.Date)
-            .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Price)
-            .ToList();
-
-        return new ParsedExpenseStatement(
-            expenses,
-            expenses.Sum(x => x.Price),
-            statementCurrency);
-    }
-
     private static string BuildDraftExtractionInstructions()
     {
         return """
-               Extract expense transactions from statement markdown and return JSON only.
+               Extract statement transactions from statement markdown and return JSON only.
 
                Output schema:
                {
                  "currency": "TRY",
                  "statement_total": 1234.56,
-                 "expenses": [
+                 "transactions": [
                    {
                      "date": "YYYY-MM-DD",
                      "description": "merchant or transaction description",
                      "amount": 123.45,
+                     "direction": "outgoing",
                      "currency": "TRY",
                      "category": "Food & Dining"
                    }
@@ -460,62 +275,77 @@ public class ExpenseAnalysisService(
                }
 
                Rules:
-               - Include only real spending transactions.
+               - Include real merchant transaction rows, both spending and refunds/credits.
                - If the statement explicitly shows a billing-period or statement spending/borc total relevant to the extracted expenses, put it in `statement_total`.
                - If no trustworthy total is visible, set `statement_total` to null.
-               - Exclude payments, previous balance carry-over, rewards, bonuses, refunds, fees only if clearly not spending, card limits, statement totals, and summary rows.
-               - Amounts must be positive.
+               - Exclude payments, previous balance carry-over, rewards, bonuses, fees only if clearly not merchant transactions, card limits, statement totals, and summary rows.
+               - Set `direction` to "outgoing" for spending rows.
+               - Set `direction` to "incoming" for refund/credit/reversal rows.
+               - Positive signed amounts such as `+4500`, `+4.500,00`, `4500+`, or `4.500,00+` are `incoming`.
+               - Rows with refund words such as iade, iptal, alacak, refund, reversal, chargeback, or credit are `incoming`.
+               - Example: `05 Haziran 2026 GARENTA 4.500,00` is `outgoing`, and `10 Haziran 2026 GARENTA 4.500,00+` is `incoming`.
+               - Amounts must be positive absolute values without sign.
                - Preserve merchant names, but normalize whitespace.
+               - For incoming refund/credit rows, use the same merchant description that would be used for the matching outgoing spending row. Do not include plus signs or refund words in `description` when the merchant can be identified.
                - Use the statement currency unless a transaction clearly shows another currency.
-               - Do not collapse repeated rows just because date, merchant, and amount are the same. If the statement lists the same spending row multiple times, keep each occurrence as a separate expense.
-               - Prefer completeness over brevity: include every actual spending row you can justify from the markdown.
-               - Assign each expense a category from this fixed list: "Food & Dining", "Transportation", "Shopping", "Entertainment", "Travel", "Health & Pharmacy", "Subscriptions & Software", "Utilities & Bills", "Education", "Other".
+               - Do not collapse repeated rows just because date, merchant, and amount are the same. If the statement lists the same transaction row multiple times, keep each occurrence as a separate transaction.
+               - Prefer completeness over brevity: include every actual merchant transaction row you can justify from the markdown.
+               - Assign each transaction a category from this fixed list: "Food & Dining", "Transportation", "Shopping", "Entertainment", "Travel", "Health & Pharmacy", "Subscriptions & Software", "Utilities & Bills", "Education", "Other".
                - "Subscriptions & Software" covers streaming services, SaaS, AI tools (ChatGPT, Claude, Gemini, Midjourney, etc.), app stores, and cloud services.
                - Use "Other" only when none of the above clearly fits.
                - Return JSON only. No markdown fences. No commentary.
                """;
     }
 
-    private static string BuildPdfUserPrompt()
+    private static string BuildMarkdownUserPrompt(string statementMarkdown)
     {
-        return """
-               Extract all spending transactions from this statement.
+        return $"""
+               Extract all merchant transaction rows from this statement, including spending and refunds/credits.
                Think carefully about installment rows, inline rows, and markdown table rows.
+
+               Statement markdown:
+               {statementMarkdown}
                """;
     }
 
-    private static string? ExtractJsonObject(string rawText)
+    private static List<ExpenseExtractionItem> RemoveOffsetTransactions(IReadOnlyList<ExpenseExtractionItem> transactions)
     {
-        if (string.IsNullOrWhiteSpace(rawText))
+        var incomingCounts = transactions
+            .Where(item => IsIncoming(item.Direction))
+            .GroupBy(BuildOffsetKey)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        var filtered = new List<ExpenseExtractionItem>();
+
+        foreach (var item in transactions.Where(item => !IsIncoming(item.Direction)))
         {
-            return null;
+            var key = BuildOffsetKey(item);
+            if (incomingCounts.TryGetValue(key, out var count) && count > 0)
+            {
+                incomingCounts[key] = count - 1;
+                continue;
+            }
+
+            filtered.Add(item);
         }
 
-        var start = rawText.IndexOf('{', StringComparison.Ordinal);
-        var end = rawText.LastIndexOf('}');
-
-        if (start < 0 || end < start)
-        {
-            return null;
-        }
-
-        return rawText[start..(end + 1)];
+        return filtered;
     }
 
-    private static string? NormalizeCurrency(string? value)
+    private static string BuildOffsetKey(ExpenseExtractionItem item)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
+        var amount = decimal.Round(Math.Abs(item.Amount), 2, MidpointRounding.AwayFromZero);
+        return $"{NormalizeForFingerprint(item.Description)}|{amount.ToString("0.00", CultureInfo.InvariantCulture)}|{item.Currency.Trim().ToUpperInvariant()}";
+    }
 
-        var normalized = value.Trim().ToUpperInvariant();
-        return normalized switch
-        {
-            "TL" => "TRY",
-            "₺" => "TRY",
-            _ => normalized
-        };
+    private static bool IsIncoming(string direction)
+    {
+        return direction.Equals("incoming", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsOutgoing(string direction)
+    {
+        return direction.Equals("outgoing", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeForFingerprint(string value)
@@ -523,46 +353,36 @@ public class ExpenseAnalysisService(
         return Regex.Replace(value.ToUpperInvariant(), @"\s+", " ").Trim();
     }
 
-    private static Schema BuildExpenseExtractionSchema()
-    {
-        return ExpenseExtractionSchema;
-    }
-
     private static DateTime ToUtcDate(DateOnly date)
     {
         return DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
     }
-
-    private static string TruncateForLog(string? value, int maxLength = 4000)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var normalized = value
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n');
-
-        if (normalized.Length <= maxLength)
-        {
-            return normalized;
-        }
-
-        return normalized[..maxLength] + "\n...[truncated]";
-    }
 }
 
+[Description("One merchant transaction extracted from the statement. Include both outgoing spending rows and incoming refund/credit/reversal rows with the correct direction.")]
 public sealed record ExpenseExtractionItem(
-    string? Date,
-    string? Description,
+    [property: Description("Expense date in ISO yyyy-MM-dd format.")]
+    DateOnly Date,
+    [property: Description("Merchant or transaction description with normalized whitespace.")]
+    string Description,
+    [property: Description("Positive absolute transaction amount, without sign.")]
     decimal Amount,
-    string? Currency,
-    string? Category
+    [property: Description("Transaction direction. Use exactly \"outgoing\" for spending and exactly \"incoming\" for refunds, credits, reversals, or values shown with leading/trailing plus signs.")]
+    string Direction,
+    [property: Description("Expense currency code, for example TRY.")]
+    string Currency,
+    [property: Description("Expense category from the fixed list: Food & Dining, Transportation, Shopping, Entertainment, Travel, Health & Pharmacy, Subscriptions & Software, Utilities & Bills, Education, Other.")]
+    string Category
 );
 
+[Description("Structured transaction extraction result for a statement markdown document.")]
 public sealed record ExpenseExtractionResult(
-    string? Currency,
-    [property: JsonPropertyName("statement_total")] decimal? StatementTotal,
-    List<ExpenseExtractionItem>? Expenses
+    [property: Description("Statement currency code, for example TRY.")]
+    string Currency,
+    [property: JsonPropertyName("statement_total")]
+    [property: Description("Explicit statement spending total relevant to the extracted expenses, or null if not trustworthy.")]
+    decimal? StatementTotal,
+    [property: JsonPropertyName("transactions")]
+    [property: Description("All real merchant transactions, including outgoing spending and incoming refunds/credits/reversals with direction set.")]
+    List<ExpenseExtractionItem> Transactions
 );
