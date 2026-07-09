@@ -68,15 +68,11 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
 
-            using var chatClient = _aiOptions.XAI.CreateXAIChatClient()
-                .AsBuilder()
-                .UseFunctionInvocation()
-                .Build();
+            using var chatClient = _aiOptions.XAI.CreateXAIChatClient();
 
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
 
-            var agent = new ChatClientAgent(
-                chatClient,
+            var agent = chatClient.AsAIAgent(
                 new ChatClientAgentOptions
                 {
                     ChatOptions = new ChatOptions

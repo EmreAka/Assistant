@@ -24,10 +24,6 @@ public class ExpenseAnalysisService(
 ) : IExpenseAnalysisService
 {
     private static readonly CultureInfo TurkishCulture = CultureInfo.GetCultureInfo("tr-TR");
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
 
@@ -148,7 +144,6 @@ public class ExpenseAnalysisService(
     private async Task<ExpenseExtractionResult> RequestStructuredExpenseExtractionFromMarkdownAsync(string statementMarkdown, CancellationToken cancellationToken)
     {
         var options = _aiOptions.GoogleAIStudio;
-        var responseFormat = BuildExpenseExtractionResponseFormat();
         using var chatClient = options.CreateGoogleGenAIChatClient();
         var agent = new ChatClientAgent(
             chatClient,
@@ -165,11 +160,6 @@ public class ExpenseAnalysisService(
         var response = await agent.RunAsync<ExpenseExtractionResult>(
             BuildMarkdownUserPrompt(statementMarkdown),
             session,
-            JsonOptions,
-            new AgentRunOptions
-            {
-                ResponseFormat = responseFormat
-            },
             cancellationToken: cancellationToken);
 
         logger.LogInformation(
@@ -177,14 +167,6 @@ public class ExpenseAnalysisService(
             response.Result.Transactions.Count);
 
         return response.Result;
-    }
-
-    private static ChatResponseFormatJson BuildExpenseExtractionResponseFormat()
-    {
-        return ChatResponseFormat.ForJsonSchema<ExpenseExtractionResult>(
-            JsonOptions,
-            schemaName: "expense_extraction",
-            schemaDescription: "Structured expense transactions extracted from a statement markdown document.");
     }
 
     private async Task<List<ExpenseModel>> SaveParsedExpensesAsync(
