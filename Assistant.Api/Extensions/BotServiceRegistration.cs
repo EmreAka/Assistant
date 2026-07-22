@@ -15,6 +15,7 @@ public static class BotServiceRegistration
 {
     public const string MarkitdownHttpClientName = "Markitdown";
     public const string OpenRouterHttpClientName = "OpenRouter";
+    public const string XAiHttpClientName = "XAI";
 
     public static IServiceCollection AddBotServices(
         this IServiceCollection services,
@@ -41,6 +42,25 @@ public static class BotServiceRegistration
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             client.Timeout = TimeSpan.FromSeconds(45);
         });
+
+        services.AddHttpClient(XAiHttpClientName, (provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.XAI;
+
+            if (!string.IsNullOrWhiteSpace(options.ApiUrl))
+            {
+                client.BaseAddress = new Uri($"{options.ApiUrl.TrimEnd('/')}/", UriKind.Absolute);
+            }
+
+            if (!string.IsNullOrWhiteSpace(options.ApiKey))
+            {
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
+            }
+
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            client.Timeout = TimeSpan.FromSeconds(60);
+        });
+
         services.AddSingleton<ITelegramBotClient>(provider =>
             new TelegramBotClient(
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
@@ -56,10 +76,12 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
         services.AddScoped<IAgentService, AgentService>();
+        services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
 
         services.AddTransient<IBotCommand, MemoryCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommand, ChatCommand>();
+        services.AddTransient<IBotCommand, TtsCommand>();
         services.AddTransient<IBotCommandFactory, BotCommandFactory>();
         services.AddTransient<ICommandUpdateHandler, CommandUpdateHandler>();
 

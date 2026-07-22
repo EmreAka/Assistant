@@ -12,18 +12,20 @@ public class OpenRouterOptions
 {
     public string ApiKey { get; set; } = string.Empty;
     public string ApiUrl { get; set; } = "https://openrouter.ai/api/v1";
-    public string Model { get; set; } = "google/gemini-3.1-flash-lite-preview";
+    public string Model { get; set; } = "google/gemini-3.1-flash-lite";
 }
 
 public class GoogleAiStudioOptions
 {
     public string ApiKey { get; set; } = string.Empty;
-    public string Model { get; set; } = "gemini-3.1-flash-lite-preview";
+    public string Model { get; set; } = "gemini-3.1-flash-lite";
 }
 
 public class XAIOptions
 {
     public string ApiKey { get; set; } = string.Empty;
     public string ApiUrl { get; set; } = "https://api.x.ai/v1";
-    public string Model { get; set; } = "grok-4-1-fast-reasoning";
+    public string Model { get; set; } = "grok-4.3";
+    public string TtsVoiceId { get; set; } = "Carina";
+    public string TtsLanguage { get; set; } = "en";
 }

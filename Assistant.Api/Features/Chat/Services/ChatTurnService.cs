@@ -102,6 +102,16 @@ public class ChatTurnService(
             .ToList();
     }
 
+    public async Task<string?> GetLastAssistantMessageAsync(long chatId, CancellationToken cancellationToken)
+    {
+        return await dbContext.ChatTurns
+            .AsNoTracking()
+            .Where(x => x.TelegramUser.ChatId == chatId)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => x.AssistantMessage)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     private static string NormalizeStoredText(string value)
     {
         return string.Join(
