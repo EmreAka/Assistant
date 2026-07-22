@@ -1,5 +1,4 @@
 using ChatTurnModel = Assistant.Api.Features.Chat.Models.ChatTurn;
-using ExpenseModel = Assistant.Api.Features.Expense.Models.Expense;
 
 namespace Assistant.Api.Features.UserManagement.Models;
 
@@ -15,5 +14,4 @@ public class TelegramUser
     public AssistantPersonality? AssistantPersonality { get; set; }
     public UserMemoryConsolidationState? MemoryConsolidationState { get; set; }
     public ICollection<ChatTurnModel> ChatTurns { get; set; } = new List<ChatTurnModel>();
-    public ICollection<ExpenseModel> Expenses { get; set; } = new List<ExpenseModel>();
 }

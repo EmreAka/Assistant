@@ -43,7 +43,6 @@
       <Folder Include="Data/Migrations/" />
       <Folder Include="Domain/Configurations/" />
       <Folder Include="Extensions/" />
-      <Folder Include="Features/Tefas/" />
       <Folder Include="Services/" />
       <Folder Include="Services/Abstracts/" />
       <Folder Include="Services/Concretes/" />

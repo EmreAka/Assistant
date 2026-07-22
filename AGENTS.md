@@ -4,7 +4,7 @@ This file provides guidance when working with code in this repository.
 
 ## Project Overview
 
-A personal Telegram bot built with ASP.NET Core (.NET 10) that provides AI-powered chat, PDF statement expense extraction/querying, deferred tasks/reminders, and Turkish mutual fund (TEFAS) analysis. Uses Hangfire for background execution and Microsoft.Agents.AI for tool-calling orchestration.
+A personal Telegram bot built with ASP.NET Core (.NET 10) that provides AI-powered chat and deferred tasks/reminders. Uses Hangfire for background execution and Microsoft.Agents.AI for tool-calling orchestration.
 
 ## Commands
 
@@ -44,8 +44,6 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 4. Command executes:
    - `StartCommand` registers the Telegram user
    - `ChatCommand` calls **AgentService**
-   - `ExpenseCommand` runs statement analysis / expense workflows
-   - `TefasCommand` runs TEFAS analysis
    - `MemoryCommand` shows the active memory manifest
 5. Successful chat replies are persisted by **ChatTurnService** for later semantic recall
 
@@ -53,7 +51,7 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 
 `AgentService` builds a `ChatClientAgent` (Microsoft.Agents.AI) with:
 - **Context providers**: personality, memory manifest, pending tasks, and chat-history search context
-- **AI tools** registered via `AIFunctionFactory.Create()`: web search, schedule/list/cancel/reschedule tasks, get current time, query expenses, math calculation (`Calculate`)
+- **AI tools** registered via `AIFunctionFactory.Create()`: web search, schedule/list/cancel/reschedule tasks, get current time, math calculation (`Calculate`)
 - **SummarizingChatReducer** to manage chat history window
 - Session state cached per chat ID in a `ConcurrentDictionary`
 
@@ -61,15 +59,13 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 
 Current AI provider usage:
 - **xAI** (`AIProviders:XAI`) — main chat/agent model used by `AgentService` and memory consolidation.
-- **Google AI Studio** — web search and PDF expense extraction
+- **Google AI Studio** — web search
 - **OpenRouter** — configured in options/DI for optional integrations, but not the main agent execution path right now
 
 ### Feature Structure
 
 Features in `Assistant.Api/Features/` are self-contained slices:
 - `Chat/` — `AgentService`, tool functions (task, time, math, search), `ChatCommand`, deferred task dispatch, chat-turn storage/search
-- `Expense/` — PDF analysis via Google Gen AI, expense persistence/query tools, `ExpenseCommand`
-- `Tefas/` — HTML scraping of `tefas.gov.tr`, structured parsing, agent/fallback analysis, `TefasCommand`
 - `UserManagement/` — `StartCommand`, `MemoryCommand`, personality profile, Telegram user registration, memory manifest persistence, and memory consolidation jobs.
 
 Legacy cross-cutting infrastructure still lives outside the feature folders:
@@ -88,7 +84,7 @@ Hangfire uses PostgreSQL storage. Dashboard at `/hangfire` in development.
 
 ### Database (EF Core + PostgreSQL)
 
-Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `Expense`, `UserMemoryManifest`, `DeferredIntent`, `UserMemoryConsolidationState`
+Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `UserMemoryManifest`, `DeferredIntent`, `UserMemoryConsolidationState`
 
 Important persistence notes:
 - `ChatTurn` stores normalized user/assistant messages and is searched via PostgreSQL full-text search

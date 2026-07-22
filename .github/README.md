@@ -8,16 +8,12 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 
 ## Current Status
 - The implementation is still intentionally small, but the core command and agent infrastructure is already in place.
-- The bot currently supports `/start`, `/chat`, `/memory`, `/expense`, and `/tefas`.
+- The bot currently supports `/start`, `/chat`, and `/memory`.
 - Plain text messages without a slash command are routed to the `chat` command automatically.
 - The chat agent keeps a versioned long-term user memory manifest and can update it through tool calling.
 - Successful chat turns are persisted and recalled through PostgreSQL full-text search so the agent can pull relevant older conversation snippets.
 - The chat agent can schedule, list, cancel, and reschedule deferred tasks and reminders through Hangfire-backed tools.
-- The chat agent can trigger live web search for fresh information and query previously imported expenses from the database.
-- The `/expense` command now provides a deterministic overview with statement-period browsing and category rollups.
-- Imported statement periods can be drilled into with `/expense <number>` and filtered with `/expense <number> <category>`.
-- Credit card statement PDFs are analyzed, validated, deduplicated, and persisted as categorized expense transactions.
-- TEFAS fund pages are fetched live, parsed into structured snapshots, and summarized through the agent with a deterministic fallback.
+- The chat agent can trigger live web search for fresh information.
 - Incoming Telegram updates and deferred tasks are processed in the background via Hangfire.
 
 ## Commands
@@ -26,10 +22,8 @@ The bot currently supports the following commands:
 | Command | Description |
 | --- | --- |
 | `/start` | Registers the Telegram user and sends a welcome message. |
-| `/chat` | General-purpose chat entrypoint. The agent can answer questions, remember useful personal context, manage reminders/tasks, search the web when needed, and query saved expenses. |
+| `/chat` | General-purpose chat entrypoint. The agent can answer questions, remember useful personal context, manage reminders/tasks, and search the web when needed. |
 | `/memory` | Returns the active long-term `UserMemoryManifest` currently used to augment chat responses. |
-| `/expense` | Shows a deterministic expense overview, supports statement drill-down and category filters, and handles uploaded credit card statement PDFs. |
-| `/tefas` | Fetches live TEFAS fund data for a fund code and returns a short fund summary. |
 
 Bot commands are registered with Telegram during application startup.
 
@@ -38,33 +32,13 @@ Examples:
 - `/chat NVIDIA stock price current`
 - `/memory`
 - `yarın sabah 9'da su içmeyi hatırlat`
-- `/expense`
-- `/expense 1`
-- `/expense 1 Food & Dining`
-- `/tefas AFT`
 
 Chat flow:
 - The agent combines recent session history, the active memory manifest, pending tasks, and relevant persisted chat turns before answering.
 - Memory is stored as versioned `UserMemoryManifest` records rather than individual memory rows.
 - Older chat turns are stored in `chat_turns` and searched through PostgreSQL full-text search.
-- Agent tools currently include web search, memory manifest update, task scheduling, current time lookup, and expense querying.
+- Agent tools currently include web search, memory manifest update, task scheduling, and current time lookup.
 - Run `/memory` to inspect the currently active manifest that is being injected into chat context.
-
-Expense flow:
-- Run `/expense` in a private chat to see a deterministic overview with total spend, transaction count, last-30-day spend, latest expense date, statement periods, and category totals.
-- Imported statement periods are listed newest-first. Run `/expense 1` to inspect the first statement in that list.
-- Run `/expense 1 Food & Dining` to filter a specific statement view down to one category while still showing the statement's category summary.
-- Upload a credit card statement PDF with the `/expense` command caption to trigger analysis.
-- The bot sends the uploaded PDF to Google Gen AI for structured extraction, validates totals/currency, normalizes categories, and saves the resulting transactions to the `Expenses` table.
-- Duplicate statement imports are blocked by a deterministic fingerprint built from the normalized transaction rows.
-- Free-form expense questions such as totals, merchants, or date-range breakdowns are intentionally handled in normal chat through the `QueryExpenses` tool. If a user asks that kind of question via `/expense`, the command returns the deterministic summary and points them back to chat.
-
-TEFAS flow:
-- Run `/tefas <FUND_CODE>` such as `/tefas AFT`.
-- The bot fetches `https://www.tefas.gov.tr/FonAnaliz.aspx?FonKod=<FUND_CODE>` live on each request.
-- Summary metrics, return windows, fund profile fields, asset allocation, one-year comparison data, and the latest available TEFAS date are parsed and normalized.
-- That structured snapshot is passed to the agent with TEFAS-specific instructions so the answer stays grounded in the scraped data.
-- If the agent fails, the bot still returns a deterministic fallback summary based on the parsed TEFAS snapshot.
 
 ## Background Jobs (Hangfire)
 Hangfire is currently used for two job types:
@@ -107,20 +81,6 @@ Implementation notes:
   - Persists successful chat turns and searches older turns with PostgreSQL full-text ranking for recall.
 - `WebSearchToolFunctions`
   - Executes Google AI Studio-backed web searches for fresh public information and returns grounded text back to the chat agent.
-- `ExpenseCommand`
-  - Returns the user's deterministic expense overview, supports statement/category drill-down, or handles statement PDF uploads for automated expense registration.
-- `ExpenseStatementBrowseService`
-  - Builds the overview and per-statement detail views from saved expenses grouped by imported statement fingerprint.
-- `ExpenseAnalysisService`
-  - Sends uploaded PDFs to Google Gen AI for structured extraction, validates the response, deduplicates previously imported statements, and persists normalized categorized expense transactions.
-- `ExpenseQueryToolFunctions`
-  - Queries saved expenses for totals, merchants, statement periods, and grouped summaries.
-- `TefasCommand`
-  - Accepts `/tefas <code>`, validates the input, invokes the TEFAS analysis service, and sends the response back to Telegram.
-- `TefasAnalysisService`
-  - Fetches the TEFAS analysis page live, parses and normalizes the fund snapshot, invokes the AI agent with TEFAS-specific augmentation, and falls back to a deterministic summary if needed.
-- `TefasHtmlParser`
-  - Uses DOM parsing plus targeted extraction of embedded chart data to turn the TEFAS HTML page into a structured fund snapshot.
 - `TelegramResponseSender`
   - Centralizes long Telegram message splitting and Markdown fallback handling for agent-style responses.
 
@@ -142,7 +102,6 @@ Implementation notes:
 - A Telegram bot token
 - An xAI API key
 - A Google AI Studio API key
-- Outbound access to `https://www.tefas.gov.tr/` for live fund scraping
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
 
@@ -182,7 +141,7 @@ Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Developme
 
 Provider notes:
 - `AIProviders:XAI` is the main chat/agent provider used by `AgentService`.
-- `AIProviders:GoogleAIStudio` is used for live web search and PDF-based expense extraction.
+- `AIProviders:GoogleAIStudio` is used for live web search.
 - `AIProviders:OpenRouter` remains configured in the project, but it is not the main active chat path right now.
 - `AIProviders:DefaultTimeZoneId` is shared by time-sensitive chat behavior and deferred task scheduling.
 
@@ -224,8 +183,6 @@ Assistant/
 │   ├── Extensions/
 │   ├── Features/
 │   │   ├── Chat/
-│   │   ├── Expense/
-│   │   ├── Tefas/
 │   │   └── UserManagement/
 │   ├── Services/
 │   │   ├── Abstracts/
@@ -233,8 +190,6 @@ Assistant/
 │   └── Screens/
 ├── Assistant.Api.Tests/
 │   ├── Chat/
-│   ├── Expense/
-│   ├── Tefas/
 │   ├── UserManagement/
 │   └── Fixtures/
 └── Assistant.sln
@@ -242,6 +197,4 @@ Assistant/
 
 ## Roadmap / Upcoming Features
 Near-term focus areas:
-- Richer expense reporting and breakdowns on top of persisted billing-period summaries
 - Hardening the memory and deferred-task flows as the agent surface grows
-- Broader investment and finance workflows on top of the TEFAS ingestion path

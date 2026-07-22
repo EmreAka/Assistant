@@ -1,5 +1,4 @@
 using Assistant.Api.Features.Chat.Models;
-using Assistant.Api.Features.Expense.Models;
 using Assistant.Api.Features.UserManagement.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +9,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TelegramUser> TelegramUsers { get; set; }
     public DbSet<AssistantPersonality> AssistantPersonalities { get; set; }
     public DbSet<ChatTurn> ChatTurns { get; set; }
-    public DbSet<Expense> Expenses { get; set; }
     public DbSet<UserMemoryManifest> UserMemoryManifests { get; set; }
     public DbSet<UserMemoryConsolidationState> UserMemoryConsolidationStates { get; set; }
     public DbSet<DeferredIntent> DeferredIntents { get; set; }

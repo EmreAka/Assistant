@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
-using Assistant.Api.Features.Expense.Services;
 using Assistant.Api.Features.UserManagement.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -20,8 +19,7 @@ public class AgentService(
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<TaskToolFunctions> taskToolLogger,
-    ILogger<WebSearchToolFunctions> webSearchToolLogger,
-    ILogger<ExpenseQueryToolFunctions> expenseToolLogger
+    ILogger<WebSearchToolFunctions> webSearchToolLogger
 ) : IAgentService
 {
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
@@ -39,7 +37,6 @@ public class AgentService(
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, assistantTimeService, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(assistantTimeService);
             var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
-            var expenseToolFunctions = new ExpenseQueryToolFunctions(chatId, dbContext, expenseToolLogger);
             var mathToolFunctions = new MathToolFunctions();
             var chatHistorySearchProvider = new TextSearchProvider(
                 (query, ct) => SearchChatTurnsAsync(chatId, query, chatTurnService, ct),
@@ -59,7 +56,6 @@ public class AgentService(
                 AIFunctionFactory.Create(taskToolFunctions.CancelTask),
                 AIFunctionFactory.Create(taskToolFunctions.RescheduleTask),
                 AIFunctionFactory.Create(timeToolFunctions.GetCurrentDateTime),
-                AIFunctionFactory.Create(expenseToolFunctions.QueryExpenses),
                 AIFunctionFactory.Create(mathToolFunctions.Calculate)
             };
 
@@ -181,17 +177,7 @@ public class AgentService(
                Math calculation rules:
                - Use the Calculate tool for exact arithmetic, percentages, powers, parentheses, common numeric functions, and multi-step numeric calculations.
                - Translate natural language calculations into safe expressions such as percentOf(18, 250), round(10 / 3, 2), or (2 + 3)^2.
-               - For expense questions, call QueryExpenses first and use Calculate only for derived math from the returned data.
                - For dates, elapsed time, schedules, or relative time expressions, use Temporal Context or GetCurrentDateTime instead of Calculate.
-
-               Expense tool rules:
-               - When the user asks about spending, expenses, where money went, totals for a period, or top merchants/descriptions, use the QueryExpenses tool before answering.
-               - Do not invent expense totals, dates, trends, merchants, or categories without using the expense tool.
-               - Each expense has a category field (e.g. "Subscriptions & Software", "Food & Dining"). Use category for exact category filtering, groupBy=category to inspect category totals, and searchText only for merchant or description keyword filtering.
-               - For relative dates like "last month" or "this week", resolve them into exact date filters and prefer mentioning exact date ranges in the response.
-               - For period-based questions ("bu dönem", "this billing period", "current statement"), first call QueryExpenses with groupBy=statement to get available credit card periods ordered by date, pick the most recent period's GroupKey as the fingerprint, then call QueryExpenses again with that statementFingerprint to get the actual expenses or totals.
-               - For category-based questions, use the category filter when the request maps to a known category, or call QueryExpenses with groupBy=category and summaryMode=aggregate first to discover available categories. For merchant/theme questions that do not map to a category, use searchText or groupBy=description to identify matching merchants.
-               - If the expense tool says there is no matching data, say that clearly and suggest a broader filter only when useful.
                """;
     }
 

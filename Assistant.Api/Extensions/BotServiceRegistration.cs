@@ -1,10 +1,6 @@
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Features.Chat.Commands;
 using Assistant.Api.Features.Chat.Services;
-using Assistant.Api.Features.Expense.Commands;
-using Assistant.Api.Features.Expense.Services;
-using Assistant.Api.Features.Tefas.Commands;
-using Assistant.Api.Features.Tefas.Services;
 using Assistant.Api.Features.UserManagement.Commands;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
@@ -17,10 +13,8 @@ namespace Assistant.Api.Extensions;
 
 public static class BotServiceRegistration
 {
-    public const string DataLabHttpClientName = "DataLab";
     public const string MarkitdownHttpClientName = "Markitdown";
     public const string OpenRouterHttpClientName = "OpenRouter";
-    public const string TefasHttpClientName = "Tefas";
 
     public static IServiceCollection AddBotServices(
         this IServiceCollection services,
@@ -28,26 +22,8 @@ public static class BotServiceRegistration
     {
         services.Configure<AiProvidersOptions>(configuration.GetSection("AIProviders"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
-        services.Configure<DataLabOptions>(configuration.GetSection("DataLab"));
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
 
-        services.AddHttpClient(DataLabHttpClientName, (provider, client) =>
-        {
-            var options = provider.GetRequiredService<IOptions<DataLabOptions>>().Value;
-
-            if (!string.IsNullOrWhiteSpace(options.ApiUrl))
-            {
-                client.BaseAddress = new Uri($"{options.ApiUrl.TrimEnd('/')}/", UriKind.Absolute);
-            }
-
-            if (!string.IsNullOrWhiteSpace(options.ApiKey))
-            {
-                client.DefaultRequestHeaders.Add("X-API-Key", options.ApiKey);
-            }
-
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            client.Timeout = TimeSpan.FromSeconds(60);
-        });
         services.AddHttpClient(OpenRouterHttpClientName, (provider, client) =>
         {
             var options = provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter;
@@ -65,13 +41,6 @@ public static class BotServiceRegistration
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             client.Timeout = TimeSpan.FromSeconds(45);
         });
-        services.AddHttpClient(TefasHttpClientName, client =>
-        {
-            client.BaseAddress = new Uri("https://www.tefas.gov.tr/");
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("AssistantBot/1.0");
-            client.Timeout = TimeSpan.FromSeconds(20);
-        });
-
         services.AddSingleton<ITelegramBotClient>(provider =>
             new TelegramBotClient(
                 provider.GetRequiredService<IOptions<BotOptions>>().Value.BotToken));
@@ -86,18 +55,11 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryConsolidationScheduler, MemoryConsolidationScheduler>();
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
-        services.AddScoped<IMarkdownConverter, DataLabMarkdownConverter>();
-        services.AddScoped<IExpenseAnalysisService, ExpenseAnalysisService>();
-        services.AddScoped<IExpenseStatementBrowseService, ExpenseStatementBrowseService>();
         services.AddScoped<IAgentService, AgentService>();
-        services.AddScoped<ITefasHtmlParser, TefasHtmlParser>();
-        services.AddScoped<ITefasAnalysisService, TefasAnalysisService>();
 
-        services.AddTransient<IBotCommand, ExpenseCommand>();
         services.AddTransient<IBotCommand, MemoryCommand>();
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommand, ChatCommand>();
-        services.AddTransient<IBotCommand, TefasCommand>();
         services.AddTransient<IBotCommandFactory, BotCommandFactory>();
         services.AddTransient<ICommandUpdateHandler, CommandUpdateHandler>();
 
