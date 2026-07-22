@@ -18,10 +18,16 @@ public class XaiTextToSpeechService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
+        var sanitizedText = TtsTextSanitizer.Sanitize(text);
+        if (string.IsNullOrWhiteSpace(sanitizedText))
+        {
+            throw new InvalidOperationException("Text contains nothing speakable after sanitization.");
+        }
+
         var client = httpClientFactory.CreateClient(BotServiceRegistration.XAiHttpClientName);
 
         var request = new TtsRequest(
-            text,
+            sanitizedText,
             _options.TtsVoiceId,
             new TtsOutputFormat("mp3", 44100, 128000),
             _options.TtsLanguage);
