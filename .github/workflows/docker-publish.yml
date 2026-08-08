@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: registry.emreaka.net
-  IMAGE_NAME: assistant
+  REGISTRY: ghcr.io
+  IMAGE_NAME: emreaka/assistant
   COMPOSE_SERVICE: assistant
 
 jobs:
@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
 
     steps:
       - name: Checkout
@@ -32,8 +33,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USER }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -57,19 +58,15 @@ jobs:
       - name: Execute remote deployment
         uses: appleboy/ssh-action@v1.2.5
         env:
-          REGISTRY: ${{ env.REGISTRY }}
-          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
-          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
           COMPOSE_SERVICE: ${{ env.COMPOSE_SERVICE }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: REGISTRY,REGISTRY_USER,REGISTRY_PASSWORD,COMPOSE_SERVICE
+          envs: COMPOSE_SERVICE
           script: |
             set -e
             cd /home/ubuntu/projects/Server
-            echo "$REGISTRY_PASSWORD" | sudo docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
             sudo docker compose pull "$COMPOSE_SERVICE"
             sudo docker compose up -d "$COMPOSE_SERVICE"
             sudo docker image prune -f
