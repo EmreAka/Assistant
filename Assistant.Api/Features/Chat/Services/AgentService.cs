@@ -64,7 +64,7 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
 
-            using var chatClient = _aiOptions.XAI.CreateXAIChatClient();
+            using var chatClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIChatClient();
 
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
 
