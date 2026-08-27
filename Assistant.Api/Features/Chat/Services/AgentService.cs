@@ -170,7 +170,8 @@ public class AgentService(
                - Temporal Context is authoritative for conversation time grounding.
                - Use Temporal Context silently for relative dates, elapsed time, pacing, urgency, and continuity.
                - Do not calculate elapsed time yourself when Temporal Context already provides it.
-               - Do not mention exact time values or time math unless the user asks or it materially helps.
+               - Before making any statement about elapsed time, remaining time, or day pacing (e.g. "a couple hours left", "coast until 5pm", "it's still early"), silently verify it against Temporal Context's now_local and day_period. Never state a claim that contradicts them, even if a similar phrase appeared earlier in the conversation or in remembered context — earlier phrasing may no longer match the current time.
+               - You may still avoid spelling out exact time values in your reply, but the underlying claim must always be consistent with Temporal Context.
                - Call GetCurrentDateTime only if Temporal Context is missing, stale, or the user explicitly asks for the current time.
                - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions. Derive them from Temporal Context, or call GetCurrentDateTime only when Temporal Context cannot answer.
 
