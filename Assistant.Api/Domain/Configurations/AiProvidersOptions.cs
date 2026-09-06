@@ -13,8 +13,34 @@ public class OpenRouterOptions
     public string ApiKey { get; set; } = string.Empty;
     public string ApiUrl { get; set; } = "https://openrouter.ai/api/v1";
     public string Model { get; set; } = "google/gemini-3.1-flash-lite";
+    public OpenRouterWebSearchOptions WebSearch { get; set; } = new();
 }
 
+/// <summary>
+/// Settings for the OpenRouter <c>openrouter:web_search</c> server tool.
+/// The model decides when to search; OpenRouter runs the search server-side.
+/// </summary>
+public class OpenRouterWebSearchOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>auto, native, exa, firecrawl, parallel or perplexity.</summary>
+    public string Engine { get; set; } = "auto";
+
+    /// <summary>Maximum results per search call. Ignored by native provider search.</summary>
+    public int MaxResults { get; set; } = 5;
+
+    /// <summary>Maximum searches per request. Zero leaves the OpenRouter default in place.</summary>
+    public int MaxUses { get; set; } = 3;
+
+    /// <summary>low, medium or high. Empty leaves the engine default in place.</summary>
+    public string SearchContextSize { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Kept for optional/experimental use. Not part of the active chat, memory or
+/// web search path, which all run through OpenRouter.
+/// </summary>
 public class GoogleAiStudioOptions
 {
     public string ApiKey { get; set; } = string.Empty;

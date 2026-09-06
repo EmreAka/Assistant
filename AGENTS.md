@@ -51,21 +51,22 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 
 `AgentService` builds a `ChatClientAgent` (Microsoft.Agents.AI) with:
 - **Context providers**: personality, memory manifest, pending tasks, and chat-history search context
-- **AI tools** registered via `AIFunctionFactory.Create()`: web search, schedule/list/cancel/reschedule tasks, get current time, math calculation (`Calculate`)
+- **AI tools** registered via `AIFunctionFactory.Create()`: schedule/list/cancel/reschedule tasks, get current time, math calculation (`Calculate`)
+- **OpenRouter web search**: the `openrouter:web_search` server tool is patched into the outgoing `tools` array by `OpenRouterOptions.CreateRawChatCompletionOptions()` (wired through `ChatOptions.RawRepresentationFactory`). OpenRouter runs the search server-side, so there is no local web search tool function
 - **SummarizingChatReducer** to manage chat history window
 - Session state cached per chat ID in a `ConcurrentDictionary`
 
 **Memory Consolidation**: Instead of inline memory updates via tools, a background process handled by `MemoryConsolidationAgentService` aggregates recent chat turns and uses an AI model with specific instructions to merge them into a single `UserMemoryManifest`.
 
 Current AI provider usage:
-- **xAI** (`AIProviders:XAI`) — main chat/agent model used by `AgentService` and memory consolidation.
-- **Google AI Studio** — web search
-- **OpenRouter** — configured in options/DI for optional integrations, but not the main agent execution path right now
+- **OpenRouter** (`AIProviders:OpenRouter`) — main chat/agent model (`google/gemini-3.1-flash-lite`) used by `AgentService` and memory consolidation, plus server-side web search.
+- **xAI** (`AIProviders:XAI`) — text-to-speech only (`/tts`).
+- **Google AI Studio** (`AIProviders:GoogleAIStudio`) — kept for optional/experimental use. `WebSearchToolFunctions` and `CreateGoogleGenAIChatClient()` still exist but are not registered on any active path.
 
 ### Feature Structure
 
 Features in `Assistant.Api/Features/` are self-contained slices:
-- `Chat/` — `AgentService`, tool functions (task, time, math, search), `ChatCommand`, deferred task dispatch, chat-turn storage/search
+- `Chat/` — `AgentService`, tool functions (task, time, math, plus the unregistered `WebSearchToolFunctions`), `ChatCommand`, deferred task dispatch, chat-turn storage/search
 - `UserManagement/` — `StartCommand`, `MemoryCommand`, personality profile, Telegram user registration, memory manifest persistence, and memory consolidation jobs.
 
 Legacy cross-cutting infrastructure still lives outside the feature folders:
@@ -107,9 +108,9 @@ Bot:BotToken
 Bot:WebhookUrl
 Bot:SecretToken
 Bot:AllowedChatIds
-AIProviders:XAI:ApiKey
-AIProviders:GoogleAIStudio:ApiKey
 AIProviders:OpenRouter:ApiKey
+AIProviders:XAI:ApiKey
+AIProviders:GoogleAIStudio:ApiKey   # only if you re-enable WebSearchToolFunctions
 ConnectionStrings:PostgreSQL
 ConnectionStrings:HangfireDb
 ```

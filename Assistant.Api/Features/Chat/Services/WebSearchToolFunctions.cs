@@ -6,6 +6,12 @@ using Microsoft.Extensions.Options;
 
 namespace Assistant.Api.Features.Chat.Services;
 
+/// <summary>
+/// Google AI Studio grounded web search, kept as an alternative to the OpenRouter
+/// <c>openrouter:web_search</c> server tool that <see cref="AgentService"/> uses today.
+/// Not registered as an agent tool right now; add it back to the tool list in
+/// <see cref="AgentService"/> (and set <c>AIProviders:GoogleAIStudio:ApiKey</c>) to re-enable it.
+/// </summary>
 public class WebSearchToolFunctions(
     IOptions<AiProvidersOptions> aiProvidersOptions,
     ILogger<WebSearchToolFunctions> logger

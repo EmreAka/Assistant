@@ -70,7 +70,7 @@ Implementation notes:
 - `MemoryCommand`
   - Fetches the active `UserMemoryManifest` for the current chat and sends it back to Telegram.
 - `AgentService`
-  - Builds the `ChatClientAgent`, registers tools, injects personality/memory/task context, and runs chat-history lookup over persisted chat turns before each response.
+  - Builds the `ChatClientAgent`, registers tools, enables the OpenRouter `openrouter:web_search` server tool, injects personality/memory/task context, and runs chat-history lookup over persisted chat turns before each response.
 - `MemoryContextProvider`
   - Injects the active `UserMemoryManifest` into the chat agent context.
 - `MemoryToolFunctions`
@@ -80,7 +80,7 @@ Implementation notes:
 - `ChatTurnService`
   - Persists successful chat turns and searches older turns with PostgreSQL full-text ranking for recall.
 - `WebSearchToolFunctions`
-  - Executes Google AI Studio-backed web searches for fresh public information and returns grounded text back to the chat agent.
+  - Google AI Studio-backed web search, kept as an alternative to the OpenRouter server tool. Not registered as an agent tool right now.
 - `TelegramResponseSender`
   - Centralizes long Telegram message splitting and Markdown fallback handling for agent-style responses.
 
@@ -100,13 +100,13 @@ Implementation notes:
 - .NET 10 SDK
 - PostgreSQL
 - A Telegram bot token
-- An xAI API key
-- A Google AI Studio API key
+- An OpenRouter API key
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
 
 Optional:
-- An OpenRouter API key if you want to keep the optional provider config populated
+- An xAI API key if you want the `/tts` text-to-speech command
+- A Google AI Studio API key if you want to re-enable `WebSearchToolFunctions` instead of the OpenRouter server tool
 
 ### Configuration
 Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Development.json`:
@@ -123,16 +123,23 @@ Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Developme
     "OpenRouter": {
       "ApiKey": "YOUR_OPENROUTER_API_KEY",
       "ApiUrl": "https://openrouter.ai/api/v1",
-      "Model": "google/gemini-3.1-flash-lite-preview"
+      "Model": "google/gemini-3.1-flash-lite",
+      "WebSearch": {
+        "Enabled": true,
+        "Engine": "auto",
+        "MaxResults": 5,
+        "MaxUses": 3,
+        "SearchContextSize": ""
+      }
     },
     "GoogleAIStudio": {
       "ApiKey": "YOUR_GOOGLE_AI_STUDIO_API_KEY",
-      "Model": "gemini-3.1-flash-lite-preview"
+      "Model": "gemini-3.1-flash-lite"
     },
     "XAI": {
       "ApiKey": "YOUR_XAI_API_KEY",
       "ApiUrl": "https://api.x.ai/v1",
-      "Model": "grok-4-1-fast-reasoning"
+      "Model": "grok-4.3"
     },
     "DefaultTimeZoneId": "Europe/Istanbul"
   }
@@ -140,9 +147,10 @@ Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Developme
 ```
 
 Provider notes:
-- `AIProviders:XAI` is the main chat/agent provider used by `AgentService`.
-- `AIProviders:GoogleAIStudio` is used for live web search.
-- `AIProviders:OpenRouter` remains configured in the project, but it is not the main active chat path right now.
+- `AIProviders:OpenRouter` is the main chat/agent provider used by `AgentService` and memory consolidation.
+- `AIProviders:OpenRouter:WebSearch` configures the [`openrouter:web_search` server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search). The model decides when to search and OpenRouter runs the search server-side, so there is no separate web search tool function. `Engine: "auto"` uses the provider's native search when the model supports it (Gemini 3.1 Flash Lite does) and falls back to Exa otherwise.
+- `AIProviders:XAI` is only used by the `/tts` text-to-speech command.
+- `AIProviders:GoogleAIStudio` is kept for optional/experimental use and is not on any active path. It is only needed if you re-register `WebSearchToolFunctions` in `AgentService`.
 - `AIProviders:DefaultTimeZoneId` is shared by time-sensitive chat behavior and deferred task scheduling.
 
 Also configure database connection strings in the same file:

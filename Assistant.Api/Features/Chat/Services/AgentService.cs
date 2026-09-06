@@ -18,8 +18,7 @@ public class AgentService(
     IAssistantTimeService assistantTimeService,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
-    ILogger<TaskToolFunctions> taskToolLogger,
-    ILogger<WebSearchToolFunctions> webSearchToolLogger
+    ILogger<TaskToolFunctions> taskToolLogger
 ) : IAgentService
 {
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
@@ -36,7 +35,6 @@ public class AgentService(
         {
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, assistantTimeService, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(assistantTimeService);
-            var webSearchToolFunctions = new WebSearchToolFunctions(aiOptions, webSearchToolLogger);
             var mathToolFunctions = new MathToolFunctions();
             var chatHistorySearchProvider = new TextSearchProvider(
                 (query, ct) => SearchChatTurnsAsync(chatId, query, chatTurnService, ct),
@@ -50,7 +48,6 @@ public class AgentService(
 
             var tools = new List<AITool>
             {
-                AIFunctionFactory.Create(webSearchToolFunctions.SearchWeb),
                 AIFunctionFactory.Create(taskToolFunctions.ScheduleTask),
                 AIFunctionFactory.Create(taskToolFunctions.ListTasks),
                 AIFunctionFactory.Create(taskToolFunctions.CancelTask),
@@ -64,7 +61,7 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
 
-            using var chatClient = _aiOptions.GoogleAIStudio.CreateGoogleGenAIChatClient();
+            using var chatClient = _aiOptions.OpenRouter.CreateOpenRouterChatClient();
 
             var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
 
@@ -75,7 +72,9 @@ public class AgentService(
                     {
                         Instructions = instructions,
                         Temperature = 1,
-                        Tools = tools
+                        Tools = tools,
+                        // Adds the OpenRouter web search server tool to the outgoing request.
+                        RawRepresentationFactory = _ => _aiOptions.OpenRouter.CreateRawChatCompletionOptions()
                     },
                     AIContextProviders =
                     [
@@ -162,9 +161,9 @@ public class AgentService(
                - After scheduling or rescheduling, mention the exact local date/time or cron schedule in your response.
 
                Web search rules:
-               - Use the SearchWeb tool for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.
-               - Do not use SearchWeb when the answer can be derived from the current conversation, saved memory, pending tasks, or stable general knowledge.
-               - If SearchWeb returns uncertain or mixed results, say so briefly instead of overstating confidence.
+               - You have built-in web search. Use it for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.
+               - Do not search when the answer can be derived from the current conversation, saved memory, pending tasks, or stable general knowledge.
+               - If the search results are uncertain or mixed, say so briefly instead of overstating confidence.
 
                Time context rules:
                - Temporal Context is authoritative for conversation time grounding.
