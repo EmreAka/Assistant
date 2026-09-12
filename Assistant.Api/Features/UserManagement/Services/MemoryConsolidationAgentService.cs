@@ -1,17 +1,12 @@
 using System.Globalization;
-using Assistant.Api.Domain.Configurations;
-using Assistant.Api.Extensions;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Options;
 
 namespace Assistant.Api.Features.UserManagement.Services;
 
 public class MemoryConsolidationAgentService(
-    IOptions<AiProvidersOptions> aiOptions
+    IChatClient chatClient
 ) : IMemoryConsolidationAgentService
 {
-    private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
-
     public async Task<string> ConsolidateAsync(
         MemoryConsolidationRequest request,
         CancellationToken cancellationToken)
@@ -21,11 +16,11 @@ public class MemoryConsolidationAgentService(
             return request.CurrentManifest;
         }
 
-        using var consolidateClient = _aiOptions.OpenRouter.CreateOpenRouterChatClient();
-
+        // chatClient is the shared singleton from BotServiceRegistration. The OpenAI SDK clients are
+        // thread-safe and meant to be reused, so there is no per-call client to create or dispose.
         ChatMessage message = new(ChatRole.User, BuildInput(request));
 
-        var response = await consolidateClient.GetResponseAsync(
+        var response = await chatClient.GetResponseAsync(
             message,
             new ChatOptions
             {

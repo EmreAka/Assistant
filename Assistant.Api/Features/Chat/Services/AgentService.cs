@@ -16,6 +16,7 @@ public class AgentService(
     ApplicationDbContext dbContext,
     IDeferredIntentScheduler deferredIntentScheduler,
     IAssistantTimeService assistantTimeService,
+    IChatClient chatClient,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<TaskToolFunctions> taskToolLogger
@@ -24,6 +25,13 @@ public class AgentService(
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
     private static readonly ConcurrentDictionary<long, AgentSession> Sessions = new();
 
+    // Serializes agent runs per chat. Two concurrent runs for the same chat (two quick Telegram
+    // messages, or a chat turn racing a DeferredIntentDispatchJob) could otherwise create two
+    // sessions for the same chat - one silently discarded - and mutate the shared AgentSession
+    // concurrently, where the load/append/store of chat history is not atomic and turns can be lost.
+    // NOTE: entries are never evicted; the chat ID allowlist in BotController bounds the growth.
+    private static readonly ConcurrentDictionary<long, SemaphoreSlim> ChatGates = new();
+
     public async Task<string> RunAsync(
         long chatId,
         string userInput,
@@ -31,6 +39,11 @@ public class AgentService(
         IEnumerable<AITool>? additionalTools = null,
         CancellationToken cancellationToken = default)
     {
+        // The gate is held for the whole run. That is what makes the session get-or-create below
+        // atomic, and it keeps a single AgentSession from being mutated by two runs at once.
+        var gate = ChatGates.GetOrAdd(chatId, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(cancellationToken);
+
         try
         {
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, assistantTimeService, taskToolLogger);
@@ -61,10 +74,16 @@ public class AgentService(
                 tools.AddRange(additionalTools);
             }
 
-            using var chatClient = _aiOptions.OpenRouter.CreateOpenRouterChatClient();
+            // Raw string literals exclude the newline before the closing quotes, and the deferred task
+            // augmentation begins immediately with text. Without an explicit separator the two blocks
+            // were glued together: "...instead of Calculate.YOU ARE NOW EXECUTING A DEFERRED TASK.".
+            var instructions = string.IsNullOrWhiteSpace(systemInstructionsAugmentation)
+                ? BuildChatInstructions()
+                : $"{BuildChatInstructions()}{Environment.NewLine}{Environment.NewLine}{systemInstructionsAugmentation}";
 
-            var instructions = BuildChatInstructions() + (systemInstructionsAugmentation ?? "");
-
+            // chatClient is a DI singleton (see BotServiceRegistration) so the OpenAI SDK's HTTP
+            // pipeline and connection pool are shared process-wide instead of being created and
+            // disposed on every message.
             var agent = chatClient.AsAIAgent(
                 new ChatClientAgentOptions
                 {
@@ -93,7 +112,7 @@ public class AgentService(
                 }
             );
 
-            // Get or create a session
+            // Get or create a session. This is only race-free because it runs under the per-chat gate.
             if (!Sessions.TryGetValue(chatId, out var session))
             {
                 session = await agent.CreateSessionAsync(cancellationToken);
@@ -111,6 +130,10 @@ public class AgentService(
         {
             logger.LogError(ex, "Agent execution failed for ChatId: {ChatId}", chatId);
             throw;
+        }
+        finally
+        {
+            gate.Release();
         }
     }
 

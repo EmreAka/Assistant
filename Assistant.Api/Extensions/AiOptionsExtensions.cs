@@ -33,12 +33,18 @@ public static class AiOptionsExtensions
             new ApiKeyCredential(options.ApiKey),
             new OpenAIClientOptions
             {
-                Endpoint = new Uri(options.ApiUrl, UriKind.Absolute)
+                Endpoint = new Uri(options.ApiUrl, UriKind.Absolute),
+                // Carries the 45s timeout that used to be configured on the (unused) named
+                // "OpenRouter" HttpClient. The SDK applies this per network operation.
+                NetworkTimeout = TimeSpan.FromSeconds(45)
             });
     }
 
     public static IChatClient CreateOpenRouterChatClient(this OpenRouterOptions options)
     {
+        // Callers should reuse the returned client for the process lifetime (BotServiceRegistration
+        // registers it as a singleton); the OpenAI SDK clients are thread-safe and are not meant to
+        // be created per request.
         return options.CreateOpenAiClient()
             .GetChatClient(options.Model)
             .AsIChatClient();

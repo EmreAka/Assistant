@@ -5,6 +5,7 @@ using Assistant.Api.Features.UserManagement.Commands;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
 using Assistant.Api.Services.Concretes;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using System.Net.Http.Headers;
 using Telegram.Bot;
@@ -14,7 +15,6 @@ namespace Assistant.Api.Extensions;
 public static class BotServiceRegistration
 {
     public const string MarkitdownHttpClientName = "Markitdown";
-    public const string OpenRouterHttpClientName = "OpenRouter";
     public const string XAiHttpClientName = "XAI";
 
     public static IServiceCollection AddBotServices(
@@ -25,23 +25,9 @@ public static class BotServiceRegistration
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
 
-        services.AddHttpClient(OpenRouterHttpClientName, (provider, client) =>
-        {
-            var options = provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter;
-
-            if (!string.IsNullOrWhiteSpace(options.ApiUrl))
-            {
-                client.BaseAddress = new Uri($"{options.ApiUrl.TrimEnd('/')}/", UriKind.Absolute);
-            }
-
-            if (!string.IsNullOrWhiteSpace(options.ApiKey))
-            {
-                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.ApiKey);
-            }
-
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            client.Timeout = TimeSpan.FromSeconds(45);
-        });
+        // NOTE: the named "OpenRouter" HttpClient registration was removed here. No code path ever
+        // resolved it (the OpenAI SDK builds its own transport), so its configuration - including the
+        // 45s timeout - was dead. That timeout now lives on OpenAIClientOptions.NetworkTimeout.
 
         services.AddHttpClient(XAiHttpClientName, (provider, client) =>
         {
@@ -75,6 +61,13 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryConsolidationScheduler, MemoryConsolidationScheduler>();
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
+        // One shared OpenRouter client for the whole process. Building an OpenAIClient per message
+        // created a fresh SDK HTTP pipeline/connection pool for each turn and then disposed it;
+        // reusing the client keeps connections warm and makes disposal a container-shutdown concern.
+        // Registered as IChatClient so both AgentService and MemoryConsolidationAgentService share it.
+        services.AddSingleton<IChatClient>(provider =>
+            provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter.CreateOpenRouterChatClient());
+
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
 
