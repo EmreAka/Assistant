@@ -69,6 +69,13 @@ public static class BotServiceRegistration
         services.AddSingleton<IChatClient>(provider =>
             provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter.CreateOpenRouterChatClient());
 
+        // Shared for the same reason as the chat client above. Uses the OpenRouter key/URL with the
+        // embedding model from the "Embeddings" section.
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(provider =>
+            provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter.CreateOpenRouterEmbeddingGenerator(
+                provider.GetRequiredService<IOptions<EmbeddingOptions>>().Value.Model));
+        services.AddScoped<IChatTurnEmbeddingService, ChatTurnEmbeddingService>();
+
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
 

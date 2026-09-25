@@ -50,6 +50,20 @@ public static class AiOptionsExtensions
             .AsIChatClient();
     }
 
+    public static IEmbeddingGenerator<string, Embedding<float>> CreateOpenRouterEmbeddingGenerator(
+        this OpenRouterOptions options,
+        string model)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            throw new InvalidOperationException("Embeddings:Model is not configured.");
+        }
+
+        return options.CreateOpenAiClient()
+            .GetEmbeddingClient(model)
+            .AsIEmbeddingGenerator();
+    }
+
     /// <summary>
     /// Builds the provider-specific request payload for a chat turn. OpenRouter server tools
     /// (such as <c>openrouter:web_search</c>) are not part of the OpenAI wire format, so they are
