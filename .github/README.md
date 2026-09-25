@@ -8,13 +8,13 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 
 ## Current Status
 - The implementation is still intentionally small, but the core command and agent infrastructure is already in place.
-- The bot currently supports `/start`, `/chat`, and `/memory`.
+- The bot currently supports `/start`, `/chat`, `/memory`, and `/tts`.
 - Plain text messages without a slash command are routed to the `chat` command automatically.
-- The chat agent keeps a versioned long-term user memory manifest and can update it through tool calling.
-- Successful chat turns are persisted and recalled through PostgreSQL full-text search so the agent can pull relevant older conversation snippets.
+- The bot keeps a versioned long-term user memory manifest that is rebuilt in the background by a memory consolidation job (there is no memory-update tool on the chat agent).
+- Successful chat turns are persisted, embedded in the background, and recalled through **semantic search** (pgvector cosine distance) so the agent can pull relevant older conversation snippets.
 - The chat agent can schedule, list, cancel, and reschedule deferred tasks and reminders through Hangfire-backed tools.
-- The chat agent can trigger live web search for fresh information.
-- Incoming Telegram updates and deferred tasks are processed in the background via Hangfire.
+- The chat agent can run live web search for fresh information through OpenRouter's server-side web search tool.
+- Incoming Telegram updates, deferred tasks, memory consolidation, and chat-turn embedding are processed in the background via Hangfire.
 
 ## Commands
 The bot currently supports the following commands:
@@ -22,8 +22,9 @@ The bot currently supports the following commands:
 | Command | Description |
 | --- | --- |
 | `/start` | Registers the Telegram user and sends a welcome message. |
-| `/chat` | General-purpose chat entrypoint. The agent can answer questions, remember useful personal context, manage reminders/tasks, and search the web when needed. |
+| `/chat` | General-purpose chat entrypoint. The agent can answer questions, use remembered context and past chat turns, manage reminders/tasks, do exact math, and search the web when needed. |
 | `/memory` | Returns the active long-term `UserMemoryManifest` currently used to augment chat responses. |
+| `/tts` | Sends the assistant's last message as audio (xAI text-to-speech). |
 
 Bot commands are registered with Telegram during application startup.
 
@@ -31,28 +32,54 @@ Examples:
 - `/chat 5 saat sonra Mustafa abiyle toplantımı hatırlat`
 - `/chat NVIDIA stock price current`
 - `/memory`
+- `/tts`
 - `yarın sabah 9'da su içmeyi hatırlat`
 
 Chat flow:
-- The agent combines recent session history, the active memory manifest, pending tasks, and relevant persisted chat turns before answering.
+- The agent combines recent session history, personality, the active memory manifest, temporal context, and semantically relevant persisted chat turns before answering.
 - Memory is stored as versioned `UserMemoryManifest` records rather than individual memory rows.
-- Older chat turns are stored in `chat_turns` and searched through PostgreSQL full-text search.
-- Agent tools currently include web search, memory manifest update, task scheduling, and current time lookup.
+- Older chat turns are stored in `chat_turns` and retrieved with semantic search (see [Semantic Chat-Turn Search](#semantic-chat-turn-search)).
+- Agent tools currently include `ScheduleTask`, `ListTasks`, `CancelTask`, `RescheduleTask`, `GetCurrentDateTime`, and `Calculate`. Web search runs server-side on OpenRouter.
 - Run `/memory` to inspect the currently active manifest that is being injected into chat context.
 
+## Semantic Chat-Turn Search
+Past conversations are recalled by meaning rather than by keyword, so a message like "what was that movie we talked about?" can find a turn that never contained the word "movie".
+
+How it works:
+1. **Storing** – after every successful reply, `ChatCommand` saves the user/assistant pair as a `ChatTurn` row with a `NULL` embedding.
+2. **Embedding (background)** – `ChatTurnEmbeddingCoordinator` checks how many of the user's turns are still un-embedded. Once that count reaches `Embeddings:TurnsThreshold`, it enqueues a `ChatTurnEmbeddingJob`.
+   - The job embeds up to `Embeddings:MaxTurnsPerRun` turns (`User: ...\nAssistant: ...`) and writes a `vector(768)` into `chat_turns.embedding`.
+   - A `NULL` embedding *is* the work queue: failed turns stay `NULL` and are retried on the next run, and a large backlog re-queues itself as long as progress is being made.
+   - The job is serialized (`DisableConcurrentExecution`), so duplicate enqueues are harmless.
+3. **Searching** – before each agent call, a `TextSearchProvider` in `AgentService` embeds the **current message only** and `ChatTurnService.SearchTurnsAsync` returns up to 10 of the user's nearest turns by pgvector cosine distance. Hits with a distance above `Embeddings:MaxCosineDistance` are dropped, because vector search always returns *something*, even when nothing is related.
+4. **Injecting** – matching turns are added to the agent context as "Relevant past chat turns" with their local timestamps.
+
+Implementation notes:
+- Embeddings are generated with `google/gemini-embedding-2` via OpenRouter (same API key as chat), requesting 768 dimensions.
+- Gemini Embedding 2 has no `task_type` parameter, so asymmetric retrieval is expressed through text prefixes: stored turns use `title: none | text: ` and search queries use `task: search result | query: `.
+- Every embedding request contains exactly **one** input. OpenRouter routes multi-input requests to a batch endpoint that is not Zero Data Retention (ZDR), which the account guardrail rejects, so do not batch.
+- Search failures never break a reply: errors are logged and the agent continues without past chat turns.
+- Because turns are embedded in batches, the most recent turns (fewer than `TurnsThreshold`) are not searchable yet. They are normally still covered by the in-memory session history.
+- There is no vector index yet; search is an exact scan over the user's embedded turns, which is fine at personal-bot scale.
+- The legacy full-text `search_vector` column still exists in the database but is no longer used.
+- To tune `MaxCosineDistance`, set the `Assistant.Api.Features.Chat.Services.ChatTurnService` log level to `Debug` to log every search hit with its cosine distance.
+
 ## Background Jobs (Hangfire)
-Hangfire is currently used for two job types:
+Hangfire is currently used for four job types:
 
 | Job | Trigger | Description |
 | --- | --- | --- |
 | `CommandUpdateJob` | On each accepted Telegram webhook update | Processes incoming Telegram updates asynchronously. |
 | `DeferredIntentDispatchJob` | Created dynamically for one-time or recurring deferred intents | Wakes the agent up later to execute scheduled reminders/tasks. |
+| `MemoryConsolidationJob` | When unconsolidated chat turns reach `MemoryConsolidation:TurnsThreshold` | Merges recent chat turns into a new version of the user's `UserMemoryManifest`. |
+| `ChatTurnEmbeddingJob` | When un-embedded chat turns reach `Embeddings:TurnsThreshold` | Generates embeddings for chat turns so they become searchable. |
 
 Implementation notes:
 - Incoming Telegram updates are enqueued from `BotController`.
 - One-time deferred tasks are scheduled with `IBackgroundJobClient.Schedule`.
 - Recurring deferred tasks are registered dynamically with `IRecurringJobManager.AddOrUpdate`.
-- There is no fixed startup-time recurring reminder job documented as part of the active runtime flow anymore.
+- Memory consolidation and embedding jobs are queued from `ChatCommand` after a turn is saved; a failure in either queue check is logged and does not affect the reply.
+- `UserMemoryConsolidationState` tracks consolidation progress per user; a queued job older than `MemoryConsolidation:StaleJobAfterMinutes` is considered stale and can be re-queued.
 
 ## Architecture Overview
 - `IBotCommand`
@@ -66,19 +93,23 @@ Implementation notes:
 - `StartCommand`
   - Registers a Telegram user in the database.
 - `ChatCommand`
-  - Invokes `AgentService`, persists successful chat turns, and sends responses through `TelegramResponseSender`.
+  - Invokes `AgentService`, persists successful chat turns, queues memory consolidation and embedding checks, and sends responses through `TelegramResponseSender`.
 - `MemoryCommand`
   - Fetches the active `UserMemoryManifest` for the current chat and sends it back to Telegram.
+- `TtsCommand`
+  - Converts the last assistant message to speech with `XaiTextToSpeechService` and sends it as audio.
 - `AgentService`
-  - Builds the `ChatClientAgent`, registers tools, enables the OpenRouter `openrouter:web_search` server tool, injects personality/memory/task context, and runs chat-history lookup over persisted chat turns before each response.
-- `MemoryContextProvider`
-  - Injects the active `UserMemoryManifest` into the chat agent context.
-- `MemoryToolFunctions`
-  - Exposes the tool that updates the user's memory manifest.
-- `TaskToolFunctions`
-  - Exposes task scheduling, listing, cancellation, and rescheduling tools backed by `DeferredIntent` plus Hangfire.
+  - Builds the `ChatClientAgent`, registers tools, enables the OpenRouter `openrouter:web_search` server tool, injects personality/memory/temporal context, runs semantic chat-turn search before each response, and serializes runs per chat.
+- `PersonalityContextProvider` / `MemoryContextProvider` / `TemporalContextProvider`
+  - Inject the assistant personality, the active `UserMemoryManifest`, and current time/last activity context into the agent.
+- `TaskToolFunctions` / `TimeToolFunctions` / `MathToolFunctions`
+  - Expose task scheduling/listing/cancellation/rescheduling (backed by `DeferredIntent` plus Hangfire), current time lookup, and exact math calculation.
 - `ChatTurnService`
-  - Persists successful chat turns and searches older turns with PostgreSQL full-text ranking for recall.
+  - Persists successful chat turns and performs semantic search over embedded turns.
+- `ChatTurnEmbeddingService` / `ChatTurnEmbeddingCoordinator` / `ChatTurnEmbeddingJob`
+  - Generate document/query embeddings, decide when to queue embedding work, and embed pending turns in the background.
+- `MemoryConsolidationCoordinator` / `MemoryConsolidationJob` / `MemoryConsolidationAgentService`
+  - Decide when to consolidate, then use the AI model to merge recent chat turns into a new memory manifest version.
 - `WebSearchToolFunctions`
   - Google AI Studio-backed web search, kept as an alternative to the OpenRouter server tool. Not registered as an agent tool right now.
 - `TelegramResponseSender`
@@ -92,15 +123,16 @@ Implementation notes:
 5. `CommandUpdateJob` invokes `CommandUpdateHandler`.
 6. `CommandUpdateHandler` extracts the slash command from the incoming text or caption; if there is no slash command, it routes the update to `chat`.
 7. `BotCommandFactory` resolves the matching command handler.
-8. For chat requests, the agent session is invoked with personality context, the active memory manifest, pending tasks, and full-text retrieval over persisted prior chat turns.
-9. The command executes and sends its response either through `TelegramResponseSender` or directly through `ITelegramBotClient`, depending on the command path.
+8. For chat requests, the agent session is invoked with personality context, the active memory manifest, temporal context, and semantically relevant prior chat turns.
+9. After a successful chat reply, the turn is saved and memory consolidation / embedding jobs are queued if their thresholds are reached.
+10. The command sends its response either through `TelegramResponseSender` or directly through `ITelegramBotClient`, depending on the command path.
 
 ## Quick Start
 ### Prerequisites
 - .NET 10 SDK
-- PostgreSQL
+- PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension available (e.g. the `pgvector/pgvector` Docker image); the migrations run `CREATE EXTENSION vector`
 - A Telegram bot token
-- An OpenRouter API key
+- An OpenRouter API key (used for chat, web search, and embeddings)
 - A webhook URL reachable by Telegram
 - A secret token for webhook verification
 
@@ -109,7 +141,7 @@ Optional:
 - A Google AI Studio API key if you want to re-enable `WebSearchToolFunctions` instead of the OpenRouter server tool
 
 ### Configuration
-Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Development.json`:
+Set the `Bot`, `AIProviders`, `MemoryConsolidation`, and `Embeddings` sections in `Assistant.Api/appsettings.Development.json` (or via user secrets / environment variables):
 
 ```json
 {
@@ -139,19 +171,50 @@ Set the `Bot` and `AIProviders` sections in `Assistant.Api/appsettings.Developme
     "XAI": {
       "ApiKey": "YOUR_XAI_API_KEY",
       "ApiUrl": "https://api.x.ai/v1",
-      "Model": "grok-4.3"
+      "Model": "grok-4.3",
+      "TtsVoiceId": "Carina",
+      "TtsLanguage": "en"
     },
     "DefaultTimeZoneId": "Europe/Istanbul"
+  },
+  "MemoryConsolidation": {
+    "TurnsThreshold": 20,
+    "StaleJobAfterMinutes": 15
+  },
+  "Embeddings": {
+    "Model": "google/gemini-embedding-2",
+    "Dimensions": 768,
+    "TurnsThreshold": 20,
+    "MaxTurnsPerRun": 50,
+    "MaxCosineDistance": 0.5
   }
 }
 ```
 
 Provider notes:
-- `AIProviders:OpenRouter` is the main chat/agent provider used by `AgentService` and memory consolidation.
+- `AIProviders:OpenRouter` is the main chat/agent provider used by `AgentService` and memory consolidation. Its API key is also used for embeddings.
 - `AIProviders:OpenRouter:WebSearch` configures the [`openrouter:web_search` server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search). The model decides when to search and OpenRouter runs the search server-side, so there is no separate web search tool function. `Engine: "auto"` uses the provider's native search when the model supports it (Gemini 3.1 Flash Lite does) and falls back to Exa otherwise.
 - `AIProviders:XAI` is only used by the `/tts` text-to-speech command.
 - `AIProviders:GoogleAIStudio` is kept for optional/experimental use and is not on any active path. It is only needed if you re-register `WebSearchToolFunctions` in `AgentService`.
 - `AIProviders:DefaultTimeZoneId` is shared by time-sensitive chat behavior and deferred task scheduling.
+- Keep OpenRouter Zero Data Retention (ZDR) enabled; embeddings are sent one input per request for that reason.
+
+Memory consolidation options:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `MemoryConsolidation:TurnsThreshold` | `20` | Unconsolidated turns needed before a consolidation job is queued. |
+| `MemoryConsolidation:StaleJobAfterMinutes` | `15` | After this long, a queued/running job is treated as stale and can be re-queued. |
+
+Embedding / semantic search options:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `Embeddings:Model` | `google/gemini-embedding-2` | OpenRouter embedding model. |
+| `Embeddings:Dimensions` | `768` | Requested vector size. Must match the `vector(768)` column; changing it requires a migration and re-embedding. |
+| `Embeddings:TurnsThreshold` | `20` | Un-embedded turns needed before an embedding job is queued. |
+| `Embeddings:MaxTurnsPerRun` | `50` | Maximum turns embedded per job run. |
+| `Embeddings:MaxCosineDistance` | `0.5` | Search hits farther than this are dropped. Lower = stricter. |
 
 Also configure database connection strings in the same file:
 
@@ -198,6 +261,7 @@ Assistant/
 │   └── Screens/
 ├── Assistant.Api.Tests/
 │   ├── Chat/
+│   ├── Extensions/
 │   ├── UserManagement/
 │   └── Fixtures/
 └── Assistant.sln
@@ -205,4 +269,5 @@ Assistant/
 
 ## Roadmap / Upcoming Features
 Near-term focus areas:
-- Hardening the memory and deferred-task flows as the agent surface grows
+- Hardening the memory, deferred-task, and semantic search flows as the agent surface grows
+- Tuning `MaxCosineDistance` and adding a vector index if the number of stored turns grows
