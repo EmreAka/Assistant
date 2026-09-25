@@ -88,7 +88,7 @@ Hangfire uses PostgreSQL storage. Dashboard at `/hangfire` in development.
 Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `UserMemoryManifest`, `DeferredIntent`, `UserMemoryConsolidationState`
 
 Important persistence notes:
-- `ChatTurn` stores normalized user/assistant messages and is searched via PostgreSQL full-text search
+- `ChatTurn` stores normalized user/assistant messages plus a `vector(768)` embedding (filled by `ChatTurnEmbeddingJob`) and is searched semantically via pgvector cosine distance. The old full-text `search_vector` column still exists but is unused
 - Memory is stored as versioned `UserMemoryManifest` rows
 - `DeferredIntent.Status` values are `pending`, `scheduled`, `recurring`, `completed`, `cancelled`, `failed`
 - `UserMemoryConsolidationState` tracks the background memory consolidation progress per user

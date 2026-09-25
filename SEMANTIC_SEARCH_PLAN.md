@@ -1,5 +1,7 @@
 # Plan: Hybrid Chat-History Search (full-text + semantic)
 
+> **Outcome (2026-09-25):** hybrid was built, then full-text was **removed** after the Step 6 logs showed it mostly returned noise (common words like "this" or "time" matched unrelated turns). Search is now **semantic only**; the RRF merge was removed with it. The search query is the **current message only** (`RecentMessageMemoryLimit = 0`).
+
 **Goal:** when the agent looks up past chat turns, find them by **meaning** as well as by words, and merge both result lists into one.
 
 **Builds on:** `EMBEDDINGS_PLAN.md` (turns already have a `vector(768)` embedding filled in by `ChatTurnEmbeddingJob`).
