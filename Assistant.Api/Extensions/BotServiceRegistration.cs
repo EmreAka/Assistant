@@ -75,6 +75,7 @@ public static class BotServiceRegistration
             provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter.CreateOpenRouterEmbeddingGenerator(
                 provider.GetRequiredService<IOptions<EmbeddingOptions>>().Value.Model));
         services.AddScoped<IChatTurnEmbeddingService, ChatTurnEmbeddingService>();
+        services.AddScoped<IChatTurnEmbeddingCoordinator, ChatTurnEmbeddingCoordinator>();
 
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
