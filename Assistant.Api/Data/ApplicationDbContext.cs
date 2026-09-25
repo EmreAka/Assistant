@@ -17,11 +17,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     {
         base.OnModelCreating(modelBuilder);
 
+        modelBuilder.HasPostgresExtension("vector");
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
 
         if (!string.Equals(Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
         {
             modelBuilder.Entity<ChatTurn>().Ignore(x => x.SearchVector);
+            modelBuilder.Entity<ChatTurn>().Ignore(x => x.Embedding);
         }
     }
 }

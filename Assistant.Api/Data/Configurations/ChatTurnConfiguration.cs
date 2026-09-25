@@ -38,6 +38,10 @@ public class ChatTurnConfiguration : IEntityTypeConfiguration<ChatTurn>
             "simple",
             x => new { x.UserMessage, x.AssistantMessage });
 
+        builder.Property(x => x.Embedding)
+            .HasColumnName("embedding")
+            .HasColumnType("vector(768)");
+
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();
