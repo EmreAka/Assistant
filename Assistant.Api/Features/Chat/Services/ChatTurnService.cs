@@ -57,7 +57,7 @@ public class ChatTurnService(
         return new ChatTurnSaveResult(turn.Id, userId.Value, chatId, createdAtUtc);
     }
 
-    // Semantic search: nearest turns by meaning. Score holds the cosine distance (lower = closer).
+    // Semantic search: nearest turns by meaning. Distance is the cosine distance (lower = closer).
     public async Task<IReadOnlyList<ChatTurnSearchResult>> SearchTurnsAsync(
         long chatId,
         string query,
@@ -125,7 +125,7 @@ public class ChatTurnService(
             logger.LogDebug(
                 "Chat turn search hit. ChatTurnId: {ChatTurnId}, CosineDistance: {CosineDistance}",
                 result.Id,
-                result.Score.ToString("F3"));
+                result.Distance.ToString("F3"));
         }
     }
 

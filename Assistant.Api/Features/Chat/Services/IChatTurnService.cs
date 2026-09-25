@@ -18,4 +18,4 @@ public sealed record ChatTurnSearchResult(
     string UserMessage,
     string AssistantMessage,
     DateTime CreatedAt,
-    double Score);
+    double Distance);
