@@ -24,6 +24,7 @@ public static class BotServiceRegistration
         services.Configure<AiProvidersOptions>(configuration.GetSection("AIProviders"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
+        services.Configure<EmbeddingOptions>(configuration.GetSection("Embeddings"));
 
         // NOTE: the named "OpenRouter" HttpClient registration was removed here. No code path ever
         // resolved it (the OpenAI SDK builds its own transport), so its configuration - including the
@@ -67,6 +68,14 @@ public static class BotServiceRegistration
         // Registered as IChatClient so both AgentService and MemoryConsolidationAgentService share it.
         services.AddSingleton<IChatClient>(provider =>
             provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter.CreateOpenRouterChatClient());
+
+        // Shared for the same reason as the chat client above. Uses the OpenRouter key/URL with the
+        // embedding model from the "Embeddings" section.
+        services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(provider =>
+            provider.GetRequiredService<IOptions<AiProvidersOptions>>().Value.OpenRouter.CreateOpenRouterEmbeddingGenerator(
+                provider.GetRequiredService<IOptions<EmbeddingOptions>>().Value.Model));
+        services.AddScoped<IChatTurnEmbeddingService, ChatTurnEmbeddingService>();
+        services.AddScoped<IChatTurnEmbeddingCoordinator, ChatTurnEmbeddingCoordinator>();
 
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
