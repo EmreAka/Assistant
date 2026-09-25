@@ -10,6 +10,7 @@ public class ChatCommand(
     IAgentService agentService,
     IChatTurnService chatTurnService,
     IMemoryConsolidationCoordinator memoryConsolidationCoordinator,
+    IChatTurnEmbeddingCoordinator chatTurnEmbeddingCoordinator,
     ITelegramResponseSender responseSender,
     ILogger<ChatCommand> logger
 ) : IBotCommand
@@ -57,6 +58,15 @@ public class ChatCommand(
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Memory consolidation queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
+                }
+
+                try
+                {
+                    await chatTurnEmbeddingCoordinator.QueueIfNeededAsync(savedTurn.TelegramUserId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Chat turn embedding queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
                 }
             }
 
