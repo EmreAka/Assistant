@@ -24,6 +24,7 @@ public static class BotServiceRegistration
         services.Configure<AiProvidersOptions>(configuration.GetSection("AIProviders"));
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
+        services.Configure<EmbeddingOptions>(configuration.GetSection("Embeddings"));
 
         // NOTE: the named "OpenRouter" HttpClient registration was removed here. No code path ever
         // resolved it (the OpenAI SDK builds its own transport), so its configuration - including the
