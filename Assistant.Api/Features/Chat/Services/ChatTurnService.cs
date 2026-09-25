@@ -94,50 +94,11 @@ public class ChatTurnService(
             .DistinctBy(x => x.Id)
             .ToDictionary(x => x.Id);
 
-        var fusedResults = FuseByReciprocalRank(
+        return [.. FuseByReciprocalRank(
                 fullTextResults.Select(x => x.Id).ToList(),
                 semanticResults.Select(x => x.Id).ToList())
             .Take(maxResults)
-            .ToList();
-
-        LogSearchResults(chatId, query, fusedResults, semanticResults);
-
-        return [.. fusedResults.Select(fused => turnsById[fused.Id] with { Score = fused.Score })];
-    }
-
-    // Temporary tuning aid: shows which search found each hit, to pick MaxCosineDistance and to
-    // decide whether full-text search earns its place. Enable with a Debug log level for this class.
-    private void LogSearchResults(
-        long chatId,
-        string query,
-        IReadOnlyList<FusedSearchResult> fusedResults,
-        IReadOnlyList<ChatTurnSearchResult> semanticResults)
-    {
-        if (!logger.IsEnabled(LogLevel.Debug))
-        {
-            return;
-        }
-
-        // For semantic hits, Score holds the cosine distance.
-        var distancesById = semanticResults.ToDictionary(x => x.Id, x => x.Score);
-
-        logger.LogDebug(
-            "Chat turn search. ChatId: {ChatId}, Query: {Query}, ResultCount: {ResultCount}",
-            chatId,
-            query,
-            fusedResults.Count);
-
-        foreach (var result in fusedResults)
-        {
-            logger.LogDebug(
-                "Chat turn search hit. ChatTurnId: {ChatTurnId}, Source: {Source}, FullTextRank: {FullTextRank}, SemanticRank: {SemanticRank}, CosineDistance: {CosineDistance}, RrfScore: {RrfScore}",
-                result.Id,
-                result.Source,
-                result.FullTextRank,
-                result.SemanticRank,
-                distancesById.TryGetValue(result.Id, out var distance) ? distance.ToString("F3") : "-",
-                result.Score.ToString("F4"));
-        }
+            .Select(fused => turnsById[fused.Id] with { Score = fused.Score })];
     }
 
     private async Task<IReadOnlyList<ChatTurnSearchResult>> SearchTurnsFullTextAsync(
@@ -211,42 +172,27 @@ public class ChatTurnService(
 
     // Merges ranked ID lists by position only, since ts_rank_cd scores and cosine distances aren't
     // comparable. A turn found by both searches outranks one found by a single search.
-    public static IReadOnlyList<FusedSearchResult> FuseByReciprocalRank(
+    public static IReadOnlyList<(int Id, double Score)> FuseByReciprocalRank(
         IReadOnlyList<int> fullTextIds,
         IReadOnlyList<int> semanticIds)
     {
-        var fullTextRanks = ToRanks(fullTextIds);
-        var semanticRanks = ToRanks(semanticIds);
+        var scores = new Dictionary<int, double>();
 
-        // Ties go to the newer turn (higher ID), matching the full-text ordering.
-        return fullTextRanks.Keys
-            .Union(semanticRanks.Keys)
-            .Select(id =>
-            {
-                int? fullTextRank = fullTextRanks.TryGetValue(id, out var ftRank) ? ftRank : null;
-                int? semanticRank = semanticRanks.TryGetValue(id, out var semRank) ? semRank : null;
-                return new FusedSearchResult(
-                    id,
-                    ReciprocalRankScore(fullTextRank) + ReciprocalRankScore(semanticRank),
-                    fullTextRank,
-                    semanticRank);
-            })
-            .OrderByDescending(x => x.Score)
-            .ThenByDescending(x => x.Id)
-            .ToList();
-
-        static Dictionary<int, int> ToRanks(IReadOnlyList<int> rankedIds)
+        foreach (var rankedIds in new[] { fullTextIds, semanticIds })
         {
-            var ranks = new Dictionary<int, int>();
             for (var index = 0; index < rankedIds.Count; index++)
             {
-                ranks.TryAdd(rankedIds[index], index + 1);
+                var rank = index + 1;
+                scores[rankedIds[index]] = scores.GetValueOrDefault(rankedIds[index]) + 1.0 / (ReciprocalRankK + rank);
             }
-
-            return ranks;
         }
 
-        static double ReciprocalRankScore(int? rank) => rank is null ? 0 : 1.0 / (ReciprocalRankK + rank.Value);
+        // Ties go to the newer turn (higher ID), matching the full-text ordering.
+        return scores
+            .OrderByDescending(x => x.Value)
+            .ThenByDescending(x => x.Key)
+            .Select(x => (x.Key, x.Value))
+            .ToList();
     }
 
     public async Task<string?> GetLastAssistantMessageAsync(long chatId, CancellationToken cancellationToken)
