@@ -13,24 +13,9 @@ public sealed record ChatTurnSaveResult(
     long ChatId,
     DateTime CreatedAtUtc);
 
-// Ranks are 1-based; null means the turn wasn't in that search's results.
-public sealed record FusedSearchResult(
-    int Id,
-    double Score,
-    int? FullTextRank,
-    int? SemanticRank)
-{
-    public string Source => (FullTextRank, SemanticRank) switch
-    {
-        (not null, not null) => "both",
-        (not null, null) => "fulltext",
-        _ => "semantic"
-    };
-}
-
 public sealed record ChatTurnSearchResult(
     int Id,
     string UserMessage,
     string AssistantMessage,
     DateTime CreatedAt,
-    double Score);
+    double Distance);

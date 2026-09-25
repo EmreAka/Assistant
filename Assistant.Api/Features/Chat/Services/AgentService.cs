@@ -54,8 +54,9 @@ public class AgentService(
                 new TextSearchProviderOptions
                 {
                     SearchTime = TextSearchProviderOptions.TextSearchBehavior.BeforeAIInvoke,
-                    RecentMessageMemoryLimit = 4,
-                    RecentMessageRolesIncluded = [ChatRole.User],
+                    // Search with the current message only. Earlier messages dragged results back to
+                    // the previous topic after a topic change; recent context is already in chat history.
+                    RecentMessageMemoryLimit = 0,
                     ContextFormatter = FormatChatTurnSearchResults
                 });
 
@@ -210,7 +211,8 @@ public class AgentService(
         IChatTurnService chatTurnService,
         CancellationToken cancellationToken)
     {
-        var results = await chatTurnService.SearchTurnsAsync(chatId, query, 3, cancellationToken);
+        var maxResults = 10;
+        var results = await chatTurnService.SearchTurnsAsync(chatId, query, maxResults, cancellationToken);
         if (results.Count == 0)
         {
             return [];
