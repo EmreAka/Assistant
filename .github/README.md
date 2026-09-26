@@ -12,6 +12,7 @@ At this stage, it is not intended to be a production-grade or public SaaS produc
 - Plain text messages without a slash command are routed to the `chat` command automatically.
 - The bot keeps a versioned long-term user memory manifest that is rebuilt in the background by a memory consolidation job (there is no memory-update tool on the chat agent).
 - Successful chat turns are persisted, embedded in the background, and recalled through **semantic search** (pgvector cosine distance) so the agent can pull relevant older conversation snippets.
+- The agent session (the last 40 messages of short-term chat history) is persisted per chat in [Ruvio](https://salihcantekin.github.io/ruvio/), a Redis-protocol store, so conversations continue across app restarts.
 - The chat agent can schedule, list, cancel, and reschedule deferred tasks and reminders through Hangfire-backed tools.
 - The chat agent can run live web search for fresh information through OpenRouter's server-side web search tool.
 - Incoming Telegram updates, deferred tasks, memory consolidation, and chat-turn embedding are processed in the background via Hangfire.
@@ -37,6 +38,7 @@ Examples:
 
 Chat flow:
 - The agent combines recent session history, personality, the active memory manifest, temporal context, and semantically relevant persisted chat turns before answering.
+- Session history is loaded from Ruvio before each run and written back after it (see [Agent Session Persistence](#agent-session-persistence)).
 - Memory is stored as versioned `UserMemoryManifest` records rather than individual memory rows.
 - Older chat turns are stored in `chat_turns` and retrieved with semantic search (see [Semantic Chat-Turn Search](#semantic-chat-turn-search)).
 - Agent tools currently include `ScheduleTask`, `ListTasks`, `CancelTask`, `RescheduleTask`, `GetCurrentDateTime`, and `Calculate`. Web search runs server-side on OpenRouter.
@@ -59,10 +61,26 @@ Implementation notes:
 - Gemini Embedding 2 has no `task_type` parameter, so asymmetric retrieval is expressed through text prefixes: stored turns use `title: none | text: ` and search queries use `task: search result | query: `.
 - Every embedding request contains exactly **one** input. OpenRouter routes multi-input requests to a batch endpoint that is not Zero Data Retention (ZDR), which the account guardrail rejects, so do not batch.
 - Search failures never break a reply: errors are logged and the agent continues without past chat turns.
-- Because turns are embedded in batches, the most recent turns (fewer than `TurnsThreshold`) are not searchable yet. They are normally still covered by the in-memory session history.
+- Because turns are embedded in batches, the most recent turns (fewer than `TurnsThreshold`) are not searchable yet. They are normally still covered by the session history persisted in Ruvio.
 - There is no vector index yet; search is an exact scan over the user's embedded turns, which is fine at personal-bot scale.
 - The legacy full-text `search_vector` column still exists in the database but is no longer used.
 - To tune `MaxCosineDistance`, set the `Assistant.Api.Features.Chat.Services.ChatTurnService` log level to `Debug` to log every search hit with its cosine distance.
+
+## Agent Session Persistence
+The agent's short-term chat history lives in its `AgentSession` (an `InMemoryChatHistoryProvider` capped at 40 messages by `MessageCountingChatReducer`). To survive app restarts and deployments, the session is stored in Ruvio instead of process memory.
+
+How it works:
+1. Before each run, `AgentService` loads `assistant:agent-session:{chatId}` through `RuvioAgentSessionStore` and restores it with `DeserializeSessionAsync`. A missing key starts a new session.
+2. The agent runs on that session.
+3. After the run, the session is serialized with `SerializeSessionAsync` and written back to the same key.
+
+Implementation notes:
+- The key is derived from the Telegram chat ID, which is stable, so a restarted app finds the same session without any in-process state.
+- Runs are serialized per chat (`ChatGates`, one `SemaphoreSlim` per chat ID) so two concurrent runs (two quick messages, or a message racing a deferred task) cannot load the same session and overwrite each other's turn. The gate is in-process, so this holds for a single app instance.
+- `RuvioClient` is registered as a singleton by `Ruvio.Client.AspNetCore` (`AddRuvioClient`) from the `Ruvio` config section.
+- If the session cannot be read, the turn runs on a fresh session that is **not** saved, so stored history is never overwritten. An unreadable (e.g. incompatible) session is replaced. A failed save is logged and does not break the reply.
+- An empty `Ruvio:Password` is treated as unset; otherwise the client would send `AUTH` to a server without a password.
+- Run Ruvio with a WAL-backed durability profile (`RUVIO_DURABILITY=everysec`) and a volume on `/data`. The default `memory` profile loses every session when the Ruvio container restarts.
 
 ## Background Jobs (Hangfire)
 Hangfire is currently used for four job types:
@@ -99,7 +117,9 @@ Implementation notes:
 - `TtsCommand`
   - Converts the last assistant message to speech with `XaiTextToSpeechService` and sends it as audio.
 - `AgentService`
-  - Builds the `ChatClientAgent`, registers tools, enables the OpenRouter `openrouter:web_search` server tool, injects personality/memory/temporal context, runs semantic chat-turn search before each response, and serializes runs per chat.
+  - Builds the `ChatClientAgent`, registers tools, enables the OpenRouter `openrouter:web_search` server tool, injects personality/memory/temporal context, runs semantic chat-turn search before each response, loads/saves the agent session through `IAgentSessionStore`, and serializes runs per chat.
+- `RuvioAgentSessionStore`
+  - Reads and writes serialized agent sessions in Ruvio, keyed by chat ID.
 - `PersonalityContextProvider` / `MemoryContextProvider` / `TemporalContextProvider`
   - Inject the assistant personality, the active `UserMemoryManifest`, and current time/last activity context into the agent.
 - `TaskToolFunctions` / `TimeToolFunctions` / `MathToolFunctions`
@@ -123,14 +143,15 @@ Implementation notes:
 5. `CommandUpdateJob` invokes `CommandUpdateHandler`.
 6. `CommandUpdateHandler` extracts the slash command from the incoming text or caption; if there is no slash command, it routes the update to `chat`.
 7. `BotCommandFactory` resolves the matching command handler.
-8. For chat requests, the agent session is invoked with personality context, the active memory manifest, temporal context, and semantically relevant prior chat turns.
-9. After a successful chat reply, the turn is saved and memory consolidation / embedding jobs are queued if their thresholds are reached.
+8. For chat requests, the agent session is loaded from Ruvio and invoked with personality context, the active memory manifest, temporal context, and semantically relevant prior chat turns.
+9. After a successful chat reply, the updated session is written back to Ruvio, the turn is saved and memory consolidation / embedding jobs are queued if their thresholds are reached.
 10. The command sends its response either through `TelegramResponseSender` or directly through `ITelegramBotClient`, depending on the command path.
 
 ## Quick Start
 ### Prerequisites
 - .NET 10 SDK
 - PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension available (e.g. the `pgvector/pgvector` Docker image); the migrations run `CREATE EXTENSION vector`
+- [Ruvio](https://salihcantekin.github.io/ruvio/start.html) for agent session storage (e.g. `docker run -d -p 127.0.0.1:6379:6379 -e RUVIO_DURABILITY=everysec -v ruvio-data:/data salihcantekin/ruvio:linux`)
 - A Telegram bot token
 - An OpenRouter API key (used for chat, web search, and embeddings)
 - A webhook URL reachable by Telegram
@@ -141,7 +162,7 @@ Optional:
 - A Google AI Studio API key if you want to re-enable `WebSearchToolFunctions` instead of the OpenRouter server tool
 
 ### Configuration
-Set the `Bot`, `AIProviders`, `MemoryConsolidation`, and `Embeddings` sections in `Assistant.Api/appsettings.Development.json` (or via user secrets / environment variables):
+Set the `Bot`, `AIProviders`, `MemoryConsolidation`, `Embeddings`, and `Ruvio` sections in `Assistant.Api/appsettings.Development.json` (or via user secrets / environment variables):
 
 ```json
 {
@@ -187,6 +208,12 @@ Set the `Bot`, `AIProviders`, `MemoryConsolidation`, and `Embeddings` sections i
     "TurnsThreshold": 20,
     "MaxTurnsPerRun": 50,
     "MaxCosineDistance": 0.5
+  },
+  "Ruvio": {
+    "Host": "127.0.0.1",
+    "Port": 6379,
+    "Password": "",
+    "ConnectTimeout": "00:00:05"
   }
 }
 ```
@@ -215,6 +242,15 @@ Embedding / semantic search options:
 | `Embeddings:TurnsThreshold` | `20` | Un-embedded turns needed before an embedding job is queued. |
 | `Embeddings:MaxTurnsPerRun` | `50` | Maximum turns embedded per job run. |
 | `Embeddings:MaxCosineDistance` | `0.5` | Search hits farther than this are dropped. Lower = stricter. |
+
+Ruvio options:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `Ruvio:Host` | `127.0.0.1` | Ruvio host. In Docker Compose, use the service name (e.g. `ruvio`). |
+| `Ruvio:Port` | `6379` | Ruvio RESP port. |
+| `Ruvio:Password` | empty | Sent as `AUTH` only when set. Leave empty when Ruvio has no `requirepass` (e.g. only reachable inside the Compose network). |
+| `Ruvio:ConnectTimeout` | `00:00:05` | TCP connect timeout. |
 
 Also configure database connection strings in the same file:
 
