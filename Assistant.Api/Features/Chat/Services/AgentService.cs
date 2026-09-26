@@ -24,7 +24,6 @@ public class AgentService(
 {
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
     private readonly ReasoningEffort _chatReasoningEffort = aiOptions.Value.OpenRouter.Reasoning.Chat;
-    private readonly ReasoningEffort _memoryConsolidationReasoningEffort = aiOptions.Value.OpenRouter.Reasoning.MemoryConsolidation;
     private static readonly ConcurrentDictionary<long, AgentSession> Sessions = new();
 
     // Serializes agent runs per chat. Two concurrent runs for the same chat (two quick Telegram
@@ -110,15 +109,7 @@ public class AgentService(
 #pragma warning disable MEAI001
                     ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
                     {
-                        // The reducer calls the client without options, so the summarization
-                        // reasoning effort is applied through a thin wrapper around the shared client.
-                        ChatReducer = new SummarizingChatReducer(
-                            chatClient.AsBuilder()
-                                .ConfigureOptions(options => options.Reasoning ??=
-                                    new ReasoningOptions { Effort = _memoryConsolidationReasoningEffort })
-                                .Build(),
-                            24,
-                            6)
+                        ChatReducer = new MessageCountingChatReducer(40)
                     })
 #pragma warning restore MEAI001
                 }

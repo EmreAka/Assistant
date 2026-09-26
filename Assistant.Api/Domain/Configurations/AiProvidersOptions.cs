@@ -14,7 +14,7 @@ public class OpenRouterOptions
 {
     public string ApiKey { get; set; } = string.Empty;
     public string ApiUrl { get; set; } = "https://openrouter.ai/api/v1";
-    public string Model { get; set; } = "google/gemini-3.1-flash-lite";
+    public string Model { get; set; } = "openai/gpt-6-luna";
     public OpenRouterWebSearchOptions WebSearch { get; set; } = new();
     public OpenRouterReasoningOptions Reasoning { get; set; } = new();
 }
@@ -36,11 +36,6 @@ public class OpenRouterReasoningOptions
     /// and many keep/drop rules, so it gets the most reasoning.
     /// </summary>
     public ReasoningEffort MemoryConsolidation { get; set; } = ReasoningEffort.High;
-
-    /// <summary>
-    /// Chat history compression. A mechanical summary where speed matters more than depth.
-    /// </summary>
-    public ReasoningEffort ChatSummarization { get; set; } = ReasoningEffort.Low;
 }
 
 /// <summary>

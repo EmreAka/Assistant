@@ -10,7 +10,6 @@ public class MemoryConsolidationAgentService(
     IOptions<AiProvidersOptions> aiOptions
 ) : IMemoryConsolidationAgentService
 {
-    private readonly OpenRouterOptions _openRouterOptions = aiOptions.Value.OpenRouter;
     private readonly ReasoningEffort _reasoningEffort = aiOptions.Value.OpenRouter.Reasoning.MemoryConsolidation;
 
     public async Task<string> ConsolidateAsync(
