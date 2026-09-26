@@ -55,7 +55,7 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 - **OpenRouter web search**: the `openrouter:web_search` server tool is patched into the outgoing `tools` array by `OpenRouterOptions.CreateRawChatCompletionOptions()` (wired through `ChatOptions.RawRepresentationFactory`). OpenRouter runs the search server-side, so there is no local web search tool function
 - **Reasoning effort per agent**: `AIProviders:OpenRouter:Reasoning` (`Chat`, `MemoryConsolidation`, `ChatSummarization`) is applied through `ChatOptions.Reasoning`, which the OpenAI adapter sends as `reasoning_effort` (OpenRouter's shorthand for `reasoning.effort`)
 - **SummarizingChatReducer** to manage chat history window
-- Session state cached per chat ID in a `ConcurrentDictionary`
+- Session state (including the in-memory chat history) is serialized with `SerializeSessionAsync` and stored per chat ID in **Ruvio** (Redis-protocol store) by `RuvioAgentSessionStore` under `assistant:agent-session:{chatId}`, so it survives app restarts. The `RuvioClient` singleton is registered with `Ruvio.Client.AspNetCore` (`AddRuvioClient`, `Ruvio` config section). If Ruvio can't be read, the turn runs on a fresh session that is not saved, so stored history is never overwritten
 
 **Memory Consolidation**: Instead of inline memory updates via tools, a background process handled by `MemoryConsolidationAgentService` aggregates recent chat turns and uses an AI model with specific instructions to merge them into a single `UserMemoryManifest`.
 
@@ -114,6 +114,7 @@ AIProviders:XAI:ApiKey
 AIProviders:GoogleAIStudio:ApiKey   # only if you re-enable WebSearchToolFunctions
 ConnectionStrings:PostgreSQL
 ConnectionStrings:HangfireDb
+Ruvio:Host / Ruvio:Port / Ruvio:Password   # agent session store
 ```
 
 `AIProviders:DefaultTimeZoneId` controls timezone for scheduled tasks (default: `Europe/Istanbul`).

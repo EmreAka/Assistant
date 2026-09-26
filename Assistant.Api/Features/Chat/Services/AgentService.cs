@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Extensions;
@@ -17,6 +18,7 @@ public class AgentService(
     IDeferredIntentScheduler deferredIntentScheduler,
     IAssistantTimeService assistantTimeService,
     IChatClient chatClient,
+    IAgentSessionStore sessionStore,
     IOptions<AiProvidersOptions> aiOptions,
     ILogger<AgentService> logger,
     ILogger<TaskToolFunctions> taskToolLogger
@@ -24,12 +26,11 @@ public class AgentService(
 {
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
     private readonly ReasoningEffort _chatReasoningEffort = aiOptions.Value.OpenRouter.Reasoning.Chat;
-    private static readonly ConcurrentDictionary<long, AgentSession> Sessions = new();
 
     // Serializes agent runs per chat. Two concurrent runs for the same chat (two quick Telegram
     // messages, or a chat turn racing a DeferredIntentDispatchJob) could otherwise create two
-    // sessions for the same chat - one silently discarded - and mutate the shared AgentSession
-    // concurrently, where the load/append/store of chat history is not atomic and turns can be lost.
+    // sessions for the same chat and both write theirs back to the session store, so the later
+    // write silently drops the other run's turn.
     // NOTE: entries are never evicted; the chat ID allowlist in BotController bounds the growth.
     private static readonly ConcurrentDictionary<long, SemaphoreSlim> ChatGates = new();
 
@@ -40,8 +41,8 @@ public class AgentService(
         IEnumerable<AITool>? additionalTools = null,
         CancellationToken cancellationToken = default)
     {
-        // The gate is held for the whole run. That is what makes the session get-or-create below
-        // atomic, and it keeps a single AgentSession from being mutated by two runs at once.
+        // The gate is held for the whole run. That is what makes the session load/run/save below
+        // atomic within this process.
         var gate = ChatGates.GetOrAdd(chatId, static _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(cancellationToken);
 
@@ -115,17 +116,16 @@ public class AgentService(
                 }
             );
 
-            // Get or create a session. This is only race-free because it runs under the per-chat gate.
-            if (!Sessions.TryGetValue(chatId, out var session))
-            {
-                session = await agent.CreateSessionAsync(cancellationToken);
-                Sessions[chatId] = session;
-            }
+            var (session, persistSession) = await LoadSessionAsync(agent, chatId, cancellationToken);
 
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
 
             LogUsageDetails(response.Usage);
 
+            if (persistSession)
+            {
+                await SaveSessionAsync(agent, chatId, session, cancellationToken);
+            }
 
             return response.Text?.Trim() ?? "Üzgünüm, şu an cevap veremiyorum.";
         }
@@ -137,6 +137,59 @@ public class AgentService(
         finally
         {
             gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Restores the chat's session from the store, or starts a new one. persistSession is false when
+    /// the store could not be read: saving the fresh session then would overwrite the stored history.
+    /// </summary>
+    private async Task<(AgentSession Session, bool PersistSession)> LoadSessionAsync(
+        AIAgent agent,
+        long chatId,
+        CancellationToken cancellationToken)
+    {
+        JsonElement? storedSession;
+        try
+        {
+            storedSession = await sessionStore.GetAsync(chatId, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Could not load agent session for ChatId: {ChatId}; continuing with a new, unsaved session", chatId);
+            return (await agent.CreateSessionAsync(cancellationToken), false);
+        }
+
+        if (storedSession is null)
+        {
+            return (await agent.CreateSessionAsync(cancellationToken), true);
+        }
+
+        try
+        {
+            return (await agent.DeserializeSessionAsync(storedSession.Value, cancellationToken: cancellationToken), true);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // An unreadable session (e.g. a format change after a package upgrade) would fail every
+            // turn; start over and let the save below replace it.
+            logger.LogWarning(ex, "Could not deserialize agent session for ChatId: {ChatId}; starting a new session", chatId);
+            return (await agent.CreateSessionAsync(cancellationToken), true);
+        }
+    }
+
+    private async Task SaveSessionAsync(AIAgent agent, long chatId, AgentSession session, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var serializedSession = await agent.SerializeSessionAsync(session, cancellationToken: cancellationToken);
+            await sessionStore.SaveAsync(chatId, serializedSession, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The reply is already generated and the turn is persisted by ChatTurnService, so only
+            // the short-term history of this turn is lost - not worth failing the whole run for.
+            logger.LogWarning(ex, "Could not save agent session for ChatId: {ChatId}", chatId);
         }
     }
 
