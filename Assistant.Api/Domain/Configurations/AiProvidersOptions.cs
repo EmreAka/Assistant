@@ -1,3 +1,5 @@
+using Microsoft.Extensions.AI;
+
 namespace Assistant.Api.Domain.Configurations;
 
 public class AiProvidersOptions
@@ -14,6 +16,31 @@ public class OpenRouterOptions
     public string ApiUrl { get; set; } = "https://openrouter.ai/api/v1";
     public string Model { get; set; } = "google/gemini-3.1-flash-lite";
     public OpenRouterWebSearchOptions WebSearch { get; set; } = new();
+    public OpenRouterReasoningOptions Reasoning { get; set; } = new();
+}
+
+/// <summary>
+/// Reasoning effort per agent, applied through <see cref="ChatOptions.Reasoning"/>.
+/// Allowed values: None, Low, Medium, High, ExtraHigh. Null leaves the model default in place.
+/// </summary>
+public class OpenRouterReasoningOptions
+{
+    /// <summary>
+    /// Interactive chat and deferred task runs. Needs enough reasoning for tool calls, dates and
+    /// cron expressions, while staying fast enough for a Telegram reply.
+    /// </summary>
+    public ReasoningEffort Chat { get; set; } = ReasoningEffort.Medium;
+
+    /// <summary>
+    /// Background memory merge. Runs rarely and off the reply path, and has to weigh contradictions
+    /// and many keep/drop rules, so it gets the most reasoning.
+    /// </summary>
+    public ReasoningEffort MemoryConsolidation { get; set; } = ReasoningEffort.High;
+
+    /// <summary>
+    /// Chat history compression. A mechanical summary where speed matters more than depth.
+    /// </summary>
+    public ReasoningEffort ChatSummarization { get; set; } = ReasoningEffort.Low;
 }
 
 /// <summary>

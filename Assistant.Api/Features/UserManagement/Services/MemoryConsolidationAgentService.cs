@@ -1,12 +1,18 @@
 using System.Globalization;
+using Assistant.Api.Domain.Configurations;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 
 namespace Assistant.Api.Features.UserManagement.Services;
 
 public class MemoryConsolidationAgentService(
-    IChatClient chatClient
+    IChatClient chatClient,
+    IOptions<AiProvidersOptions> aiOptions
 ) : IMemoryConsolidationAgentService
 {
+    private readonly OpenRouterOptions _openRouterOptions = aiOptions.Value.OpenRouter;
+    private readonly ReasoningEffort _reasoningEffort = aiOptions.Value.OpenRouter.Reasoning.MemoryConsolidation;
+
     public async Task<string> ConsolidateAsync(
         MemoryConsolidationRequest request,
         CancellationToken cancellationToken)
@@ -25,7 +31,8 @@ public class MemoryConsolidationAgentService(
             new ChatOptions
             {
                 Instructions = BuildInstructions(),
-                Temperature = 0.2f
+                Temperature = 0.2f,
+                Reasoning = new ReasoningOptions { Effort = _reasoningEffort }
             },
             cancellationToken);
 

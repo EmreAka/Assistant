@@ -53,6 +53,7 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 - **Context providers**: personality, memory manifest, pending tasks, and chat-history search context
 - **AI tools** registered via `AIFunctionFactory.Create()`: schedule/list/cancel/reschedule tasks, get current time, math calculation (`Calculate`)
 - **OpenRouter web search**: the `openrouter:web_search` server tool is patched into the outgoing `tools` array by `OpenRouterOptions.CreateRawChatCompletionOptions()` (wired through `ChatOptions.RawRepresentationFactory`). OpenRouter runs the search server-side, so there is no local web search tool function
+- **Reasoning effort per agent**: `AIProviders:OpenRouter:Reasoning` (`Chat`, `MemoryConsolidation`, `ChatSummarization`) is applied through `ChatOptions.Reasoning`, which the OpenAI adapter sends as `reasoning_effort` (OpenRouter's shorthand for `reasoning.effort`)
 - **SummarizingChatReducer** to manage chat history window
 - Session state cached per chat ID in a `ConcurrentDictionary`
 
