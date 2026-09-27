@@ -76,7 +76,7 @@ public class UserMemoryItemConfiguration : IEntityTypeConfiguration<UserMemoryIt
             .HasForeignKey(x => x.TelegramUserId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasOne<UserMemoryItem>()
+        builder.HasOne(x => x.SupersededBy)
             .WithMany()
             .HasForeignKey(x => x.SupersededById)
             .OnDelete(DeleteBehavior.SetNull);

@@ -15,6 +15,7 @@ public class UserMemoryItem
     public Vector Embedding { get; set; } = null!;
     public int[] SourceTurnIds { get; set; } = [];
     public int? SupersededById { get; set; }
+    public UserMemoryItem? SupersededBy { get; set; }
     public string ChangeReason { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
