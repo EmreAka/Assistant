@@ -9,3 +9,6 @@ Assistant.sln.DotSettings.user
 
 # Sensitive test fixtures
 Assistant.Api.Tests/Fixtures/Ekstreler/
+
+# Claude MCP
+.mcp.json
