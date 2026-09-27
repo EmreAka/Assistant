@@ -2,6 +2,7 @@ using Assistant.Api.Features.UserManagement.Commands;
 using Assistant.Api.Features.UserManagement.Models;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
+using Pgvector;
 using Telegram.Bot.Types;
 
 namespace Assistant.Api.Tests.UserManagement;
@@ -9,77 +10,84 @@ namespace Assistant.Api.Tests.UserManagement;
 public class MemoryCommandTests
 {
     [Fact]
-    public async Task ExecuteAsync_SendsActiveManifest_WhenManifestExists()
+    public async Task ExecuteAsync_SendsItemsGroupedByCoreAndCategory_WhenItemsExist()
     {
         var responseSender = new FakeTelegramResponseSender();
-        var memoryService = new FakeMemoryService
+        var memoryItemService = new FakeMemoryItemService
         {
-            ActiveManifest = new UserMemoryManifest
-            {
-                Content = "User likes espresso.",
-                Version = 3,
-                IsActive = true,
-                UpdatedAt = new DateTime(2026, 4, 16, 9, 30, 0, DateTimeKind.Utc)
-            }
+            ActiveItems =
+            [
+                new MemoryItemSummary(1, "User's name is Emre.", UserMemoryItemCategories.Identity, true,
+                    new DateTime(2026, 4, 16, 9, 30, 0, DateTimeKind.Utc)),
+                new MemoryItemSummary(7, "User likes espresso.", UserMemoryItemCategories.Preference, false,
+                    new DateTime(2026, 4, 15, 8, 0, 0, DateTimeKind.Utc)),
+                new MemoryItemSummary(9, "User works as a backend developer.", UserMemoryItemCategories.WorkEducation, false,
+                    new DateTime(2026, 4, 14, 8, 0, 0, DateTimeKind.Utc))
+            ]
         };
-        var command = new MemoryCommand(memoryService, responseSender);
+        var command = new MemoryCommand(memoryItemService, responseSender);
 
-        await command.ExecuteAsync(
-            new Update
-            {
-                Message = new Message
-                {
-                    Text = "/memory",
-                    Chat = new Chat { Id = 42 }
-                }
-            },
-            null!,
-            CancellationToken.None);
+        await command.ExecuteAsync(CreateMemoryUpdate(), null!, CancellationToken.None);
 
-        Assert.Single(responseSender.Messages);
-        Assert.Contains("*🧠 Aktif Memory*", responseSender.Messages[0]);
-        Assert.Contains("Versiyon: 3", responseSender.Messages[0]);
-        Assert.Contains("Güncellendi: 16.04.2026 09:30 UTC", responseSender.Messages[0]);
-        Assert.Contains("User likes espresso.", responseSender.Messages[0]);
+        var message = Assert.Single(responseSender.Messages);
+        Assert.Contains("*🧠 Aktif Memory*", message);
+        Assert.Contains("Toplam: 3 kayıt (1 temel)", message);
+        Assert.Contains("Son güncelleme: 16.04.2026 09:30 UTC", message);
+        Assert.Contains("*Temel*\n#1 User's name is Emre.", message.ReplaceLineEndings("\n"));
+        Assert.Contains("*Tercihler*\n#7 User likes espresso.", message.ReplaceLineEndings("\n"));
+        Assert.Contains("*İş / Eğitim*\n#9 User works as a backend developer.", message.ReplaceLineEndings("\n"));
+        Assert.DoesNotContain("work_education", message);
     }
 
     [Fact]
-    public async Task ExecuteAsync_SendsEmptyMessage_WhenManifestDoesNotExist()
+    public async Task ExecuteAsync_SendsEmptyMessage_WhenNoItemsExist()
     {
         var responseSender = new FakeTelegramResponseSender();
-        var command = new MemoryCommand(new FakeMemoryService(), responseSender);
+        var command = new MemoryCommand(new FakeMemoryItemService(), responseSender);
 
-        await command.ExecuteAsync(
-            new Update
-            {
-                Message = new Message
-                {
-                    Text = "/memory",
-                    Chat = new Chat { Id = 42 }
-                }
-            },
-            null!,
-            CancellationToken.None);
+        await command.ExecuteAsync(CreateMemoryUpdate(), null!, CancellationToken.None);
 
-        Assert.Single(responseSender.Messages);
-        Assert.Equal("Aktif memory manifest bulunamadı.", responseSender.Messages[0]);
+        var message = Assert.Single(responseSender.Messages);
+        Assert.Equal("Aktif memory kaydı bulunamadı.", message);
     }
 
-    private sealed class FakeMemoryService : IMemoryService
+    private static Update CreateMemoryUpdate()
     {
-        public UserMemoryManifest? ActiveManifest { get; init; }
-
-        public Task<string> GetActiveManifestAsync(long chatId, CancellationToken cancellationToken)
+        return new Update
         {
-            return Task.FromResult(ActiveManifest?.Content ?? string.Empty);
+            Message = new Message
+            {
+                Text = "/memory",
+                Chat = new Chat { Id = 42 }
+            }
+        };
+    }
+
+    private sealed class FakeMemoryItemService : IMemoryItemService
+    {
+        public IReadOnlyList<MemoryItemSummary> ActiveItems { get; init; } = [];
+
+        public Task<IReadOnlyList<MemoryItemSummary>> GetActiveItemsAsync(long chatId, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(ActiveItems);
         }
 
-        public Task<UserMemoryManifest?> GetActiveManifestRecordAsync(long chatId, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<MemoryItemSummary>> GetCoreItemsAsync(long chatId, CancellationToken cancellationToken)
         {
-            return Task.FromResult(ActiveManifest);
+            throw new NotSupportedException();
         }
 
-        public Task<bool> SaveManifestAsync(long chatId, string content, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<MemoryItemSearchResult>> FindNeighborsAsync(int telegramUserId, Vector vector, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<IReadOnlyList<MemoryItemSearchResult>> SearchAsync(long chatId, Vector queryVector, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<bool> HasAnyItemsAsync(int telegramUserId, CancellationToken cancellationToken)
         {
             throw new NotSupportedException();
         }
