@@ -30,6 +30,8 @@ public class MemoryExtractionAgentServiceTests
         Assert.Contains("At most 300 characters per fact.", chatClient.LastOptions?.Instructions);
         Assert.Contains(string.Join(", ", UserMemoryItemCategories.All), chatClient.LastOptions?.Instructions);
         Assert.Equal(0.2f, chatClient.LastOptions?.Temperature);
+        Assert.Equal("deepseek/deepseek-v4.1-flash", chatClient.LastOptions?.ModelId);
+        Assert.Equal(ReasoningEffort.ExtraHigh, chatClient.LastOptions?.Reasoning?.Effort);
 
         var fact = Assert.Single(facts);
         Assert.Equal("User likes espresso.", fact.Text);
@@ -83,7 +85,7 @@ public class MemoryExtractionAgentServiceTests
             chatClient,
             new AssistantTimeService(aiOptions, new FixedTimeProvider(FixedUtcNow)),
             aiOptions,
-            Options.Create(new MemoryItemOptions { MaxItemLength = 300 }));
+            Options.Create(new MemoryItemOptions { Model = "deepseek/deepseek-v4.1-flash", MaxItemLength = 300 }));
     }
 
     private sealed class FakeChatClient(string responseJson) : IChatClient

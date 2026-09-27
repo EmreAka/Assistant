@@ -84,7 +84,7 @@ Implementation notes:
 - Facts are written in the language the user writes in; categories are a fixed set (`identity`, `preference`, `relationship`, `work_education`, `health`, `goal`, `routine`, `interest`, `other`).
 - A `NULL` `memory_processed_at` *is* the work queue: a failed run leaves the batch `NULL` and it is retried. The job is serialized (`DisableConcurrentExecution`), so duplicate enqueues are harmless.
 - The `AddUserMemoryItems` migration marks turns already consolidated into the manifest (up to `last_consolidated_chat_turn_id`) as processed, because the manifest import covers them.
-- Extraction and reconciliation use the same model settings as the old consolidation (`Reasoning:MemoryConsolidation`, temperature 0.2).
+- Extraction and reconciliation run on their own model (`MemoryItems:Model`, default `deepseek/deepseek-v4.1-flash`) at maximum reasoning (`AIProviders:OpenRouter:Reasoning:MemoryExtraction`, default `ExtraHigh`, sent as `xhigh`), temperature 0.2. The model is switched per request through `ChatOptions.ModelId` on the shared OpenRouter chat client, so no second client is needed. An empty `MemoryItems:Model` falls back to `AIProviders:OpenRouter:Model`.
 - Memory lookup failures never break a reply; the agent continues without memory.
 - To tune the distance cutoffs, set `Assistant.Api.Features.UserManagement.Services.MemoryItemService` to `Debug` to log each hit's item ID and cosine distance.
 - The manifest flow (`MemoryConsolidation*`, `MemoryContextProvider`) is kept but switched off: its trigger in `ChatCommand` and its provider in `AgentService` are commented out. See `MEMORY_ITEMS_PLAN.md`.
@@ -209,6 +209,11 @@ Set the `Bot`, `AIProviders`, `MemoryItems`, `Embeddings`, and `Ruvio` sections 
         "MaxResults": 5,
         "MaxUses": 3,
         "SearchContextSize": ""
+      },
+      "Reasoning": {
+        "Chat": "Medium",
+        "MemoryConsolidation": "High",
+        "MemoryExtraction": "ExtraHigh"
       }
     },
     "GoogleAIStudio": {
@@ -229,6 +234,7 @@ Set the `Bot`, `AIProviders`, `MemoryItems`, `Embeddings`, and `Ruvio` sections 
     "StaleJobAfterMinutes": 15
   },
   "MemoryItems": {
+    "Model": "deepseek/deepseek-v4.1-flash",
     "TurnsThreshold": 10,
     "MaxTurnsPerRun": 30,
     "MaxCandidatesPerRun": 20,
@@ -256,7 +262,8 @@ Set the `Bot`, `AIProviders`, `MemoryItems`, `Embeddings`, and `Ruvio` sections 
 ```
 
 Provider notes:
-- `AIProviders:OpenRouter` is the main chat/agent provider used by `AgentService` and memory extraction. Its API key is also used for embeddings.
+- `AIProviders:OpenRouter` is the main chat/agent provider used by `AgentService` and memory extraction (which uses its own model, `MemoryItems:Model`). Its API key is also used for embeddings.
+- `AIProviders:OpenRouter:Reasoning` sets the reasoning effort per agent: `Chat`, `MemoryConsolidation` (legacy) and `MemoryExtraction`. Allowed values: `None`, `Low`, `Medium`, `High`, `ExtraHigh`.
 - `AIProviders:OpenRouter:WebSearch` configures the [`openrouter:web_search` server tool](https://openrouter.ai/docs/guides/features/server-tools/web-search). The model decides when to search and OpenRouter runs the search server-side, so there is no separate web search tool function. `Engine: "auto"` uses the provider's native search when the model supports it (Gemini 3.1 Flash Lite does) and falls back to Exa otherwise.
 - `AIProviders:XAI` is only used by the `/tts` text-to-speech command.
 - `AIProviders:GoogleAIStudio` is kept for optional/experimental use and is not on any active path. It is only needed if you re-register `WebSearchToolFunctions` in `AgentService`.
@@ -267,6 +274,7 @@ Memory item options:
 
 | Key | Default | Description |
 | --- | --- | --- |
+| `MemoryItems:Model` | `deepseek/deepseek-v4.1-flash` | OpenRouter model for extraction and reconciliation. Empty uses `AIProviders:OpenRouter:Model`. Must support structured outputs and have ZDR endpoints. |
 | `MemoryItems:TurnsThreshold` | `10` | Unprocessed turns needed before an extraction job is queued. |
 | `MemoryItems:MaxTurnsPerRun` | `30` | Maximum turns sent to one extraction call. |
 | `MemoryItems:MaxCandidatesPerRun` | `20` | Maximum candidate facts kept from one extraction call. |

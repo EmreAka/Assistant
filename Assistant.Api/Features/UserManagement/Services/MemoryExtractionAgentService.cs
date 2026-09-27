@@ -15,7 +15,7 @@ public class MemoryExtractionAgentService(
     IOptions<MemoryItemOptions> memoryItemOptions
 ) : IMemoryExtractionAgentService
 {
-    private readonly ReasoningEffort _reasoningEffort = aiOptions.Value.OpenRouter.Reasoning.MemoryConsolidation;
+    private readonly ReasoningEffort _reasoningEffort = aiOptions.Value.OpenRouter.Reasoning.MemoryExtraction;
     private readonly MemoryItemOptions _options = memoryItemOptions.Value;
 
     public async Task<IReadOnlyList<CandidateFact>> ExtractFromTurnsAsync(
@@ -73,8 +73,9 @@ public class MemoryExtractionAgentService(
         return result.Decisions;
     }
 
-    // chatClient is the shared singleton from BotServiceRegistration. Same settings as
-    // MemoryConsolidationAgentService; no web search factory, since memory never needs it.
+    // chatClient is the shared singleton from BotServiceRegistration. ModelId switches the model per
+    // request, so memory can use its own model without a second client. No web search factory,
+    // since memory never needs it.
     private async Task<T> GetResultAsync<T>(string instructions, string input, CancellationToken cancellationToken)
     {
         var response = await chatClient.GetResponseAsync<T>(
@@ -82,6 +83,7 @@ public class MemoryExtractionAgentService(
             new ChatOptions
             {
                 Instructions = instructions,
+                ModelId = string.IsNullOrWhiteSpace(_options.Model) ? null : _options.Model,
                 Temperature = 0.2f,
                 Reasoning = new ReasoningOptions { Effort = _reasoningEffort }
             },

@@ -75,7 +75,8 @@ New section and options class `MemoryItemOptions`, bound in `BotServiceRegistrat
 }
 ```
 
-No new reasoning option: extraction reuses `OpenRouter:Reasoning:MemoryConsolidation` (see Step 4).
+~~No new reasoning option: extraction reuses `OpenRouter:Reasoning:MemoryConsolidation` (see Step 4).~~
+> **Changed later:** the memory agent got its own model and reasoning setting: `MemoryItems:Model` (`deepseek/deepseek-v4.1-flash`, sent per request through `ChatOptions.ModelId`) and `OpenRouter:Reasoning:MemoryExtraction` (`ExtraHigh`, sent as `xhigh`).
 
 The distance values are starting guesses. They get tuned in Step 10.
 
