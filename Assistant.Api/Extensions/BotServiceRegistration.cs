@@ -75,6 +75,7 @@ public static class BotServiceRegistration
         services.AddScoped<IMemoryService, MemoryService>();
         services.AddScoped<IMemoryItemService, MemoryItemService>();
         services.AddScoped<IMemoryExtractionAgentService, MemoryExtractionAgentService>();
+        services.AddScoped<IMemoryExtractionCoordinator, MemoryExtractionCoordinator>();
         services.AddScoped<IMemoryConsolidationScheduler, MemoryConsolidationScheduler>();
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();
