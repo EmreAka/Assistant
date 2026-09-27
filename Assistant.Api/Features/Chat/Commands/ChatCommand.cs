@@ -9,7 +9,7 @@ namespace Assistant.Api.Features.Chat.Commands;
 public class ChatCommand(
     IAgentService agentService,
     IChatTurnService chatTurnService,
-    IMemoryConsolidationCoordinator memoryConsolidationCoordinator,
+    // IMemoryConsolidationCoordinator memoryConsolidationCoordinator, // used by the disabled consolidation trigger
     IMemoryExtractionCoordinator memoryExtractionCoordinator,
     IChatTurnEmbeddingCoordinator chatTurnEmbeddingCoordinator,
     ITelegramResponseSender responseSender,

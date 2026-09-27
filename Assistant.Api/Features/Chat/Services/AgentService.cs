@@ -7,13 +7,16 @@ using Assistant.Api.Features.UserManagement.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using Pgvector;
 
 namespace Assistant.Api.Features.Chat.Services;
 
 public class AgentService(
     IPersonalityService personalityService,
-    IMemoryService memoryService,
+    // IMemoryService memoryService, // used by the disabled MemoryContextProvider
+    IMemoryItemService memoryItemService,
     IChatTurnService chatTurnService,
+    IChatTurnEmbeddingService embeddingService,
     ApplicationDbContext dbContext,
     IDeferredIntentScheduler deferredIntentScheduler,
     IAssistantTimeService assistantTimeService,
@@ -51,8 +54,14 @@ public class AgentService(
             var taskToolFunctions = new TaskToolFunctions(chatId, dbContext, deferredIntentScheduler, assistantTimeService, taskToolLogger);
             var timeToolFunctions = new TimeToolFunctions(assistantTimeService);
             var mathToolFunctions = new MathToolFunctions();
+
+            // The current message is the search query for both memory items and past chat turns,
+            // so it is embedded once here and shared.
+            var queryVector = await EmbedQueryAsync(chatId, userInput, cancellationToken);
+
             var chatHistorySearchProvider = new TextSearchProvider(
-                (query, ct) => SearchChatTurnsAsync(chatId, query, chatTurnService, ct),
+                // The provider's query text is the current message, which is already embedded above.
+                (_, ct) => SearchChatTurnsAsync(chatId, queryVector, ct),
                 new TextSearchProviderOptions
                 {
                     SearchTime = TextSearchProviderOptions.TextSearchBehavior.BeforeAIInvoke,
@@ -102,7 +111,9 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new MemoryContextProvider(chatId, memoryService),
+                        // Replaced by MemoryItemContextProvider (see MEMORY_ITEMS_PLAN.md). Kept to allow switching back.
+                        // new MemoryContextProvider(chatId, memoryService),
+                        new MemoryItemContextProvider(chatId, memoryItemService, queryVector, logger),
                         new TemporalContextProvider(chatId, dbContext, assistantTimeService),
                         chatHistorySearchProvider,
                         //new PendingTaskContextProvider(chatId, dbContext, assistantTimeService)
@@ -260,14 +271,38 @@ public class AgentService(
                """;
     }
 
+    // Search must never break a chat reply: a failed embedding returns null and both searches skip.
+    private async Task<Vector?> EmbedQueryAsync(long chatId, string query, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        try
+        {
+            logger.LogDebug("Embedding search query. ChatId: {ChatId}, Query: {Query}", chatId, query);
+            return await embeddingService.EmbedQueryAsync(query, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Search query embedding failed; continuing without search. ChatId: {ChatId}", chatId);
+            return null;
+        }
+    }
+
     private async Task<IEnumerable<TextSearchProvider.TextSearchResult>> SearchChatTurnsAsync(
         long chatId,
-        string query,
-        IChatTurnService chatTurnService,
+        Vector? queryVector,
         CancellationToken cancellationToken)
     {
+        if (queryVector is null)
+        {
+            return [];
+        }
+
         var maxResults = 10;
-        var results = await chatTurnService.SearchTurnsAsync(chatId, query, maxResults, cancellationToken);
+        var results = await chatTurnService.SearchTurnsAsync(chatId, queryVector, maxResults, cancellationToken);
         if (results.Count == 0)
         {
             return [];

@@ -3,13 +3,13 @@ using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Features.Chat.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Pgvector;
 using Pgvector.EntityFrameworkCore;
 
 namespace Assistant.Api.Features.Chat.Services;
 
 public class ChatTurnService(
     ApplicationDbContext dbContext,
-    IChatTurnEmbeddingService embeddingService,
     IOptions<EmbeddingOptions> embeddingOptions,
     ILogger<ChatTurnService> logger
 ) : IChatTurnService
@@ -58,21 +58,20 @@ public class ChatTurnService(
     }
 
     // Semantic search: nearest turns by meaning. Distance is the cosine distance (lower = closer).
+    // The caller embeds the query (query prefix), so one embedding can serve several searches.
     public async Task<IReadOnlyList<ChatTurnSearchResult>> SearchTurnsAsync(
         long chatId,
-        string query,
+        Vector queryVector,
         int maxResults,
         CancellationToken cancellationToken)
     {
-        if (maxResults <= 0 || string.IsNullOrWhiteSpace(query))
+        if (maxResults <= 0)
         {
             return [];
         }
 
         try
         {
-            var queryVector = await embeddingService.EmbedQueryAsync(query, cancellationToken);
-
             // Vector search always returns the "closest" turns, even when nothing is related,
             // so hits beyond MaxCosineDistance are dropped.
             var results = await dbContext.ChatTurns
@@ -92,7 +91,7 @@ public class ChatTurnService(
                 .Select(x => new ChatTurnSearchResult(x.Id, x.UserMessage, x.AssistantMessage, x.CreatedAt, x.Distance))
                 .ToListAsync(cancellationToken);
 
-            LogSearchResults(chatId, query, results);
+            LogSearchResults(chatId, results);
             return results;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -106,7 +105,6 @@ public class ChatTurnService(
     // Temporary tuning aid for picking MaxCosineDistance. Enable with a Debug log level for this class.
     private void LogSearchResults(
         long chatId,
-        string query,
         IReadOnlyList<ChatTurnSearchResult> results)
     {
         if (!logger.IsEnabled(LogLevel.Debug))
@@ -115,9 +113,8 @@ public class ChatTurnService(
         }
 
         logger.LogDebug(
-            "Chat turn search. ChatId: {ChatId}, Query: {Query}, ResultCount: {ResultCount}",
+            "Chat turn search. ChatId: {ChatId}, ResultCount: {ResultCount}",
             chatId,
-            query,
             results.Count);
 
         foreach (var result in results)
