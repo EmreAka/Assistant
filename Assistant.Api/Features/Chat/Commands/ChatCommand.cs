@@ -9,7 +9,8 @@ namespace Assistant.Api.Features.Chat.Commands;
 public class ChatCommand(
     IAgentService agentService,
     IChatTurnService chatTurnService,
-    IMemoryConsolidationCoordinator memoryConsolidationCoordinator,
+    // IMemoryConsolidationCoordinator memoryConsolidationCoordinator, // used by the disabled consolidation trigger
+    IMemoryExtractionCoordinator memoryExtractionCoordinator,
     IChatTurnEmbeddingCoordinator chatTurnEmbeddingCoordinator,
     ITelegramResponseSender responseSender,
     ILogger<ChatCommand> logger
@@ -51,13 +52,24 @@ public class ChatCommand(
 
             if (savedTurn is not null)
             {
+                // Manifest consolidation is replaced by memory item extraction (see MEMORY_ITEMS_PLAN.md).
+                // Kept to allow switching back.
+                // try
+                // {
+                //     await memoryConsolidationCoordinator.QueueIfNeededAsync(savedTurn.TelegramUserId, cancellationToken);
+                // }
+                // catch (Exception ex)
+                // {
+                //     logger.LogError(ex, "Memory consolidation queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
+                // }
+
                 try
                 {
-                    await memoryConsolidationCoordinator.QueueIfNeededAsync(savedTurn.TelegramUserId, cancellationToken);
+                    await memoryExtractionCoordinator.QueueIfNeededAsync(savedTurn.TelegramUserId, cancellationToken);
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Memory consolidation queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
+                    logger.LogError(ex, "Memory extraction queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
                 }
 
                 try

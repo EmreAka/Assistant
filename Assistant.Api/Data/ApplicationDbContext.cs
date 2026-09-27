@@ -11,6 +11,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<ChatTurn> ChatTurns { get; set; }
     public DbSet<UserMemoryManifest> UserMemoryManifests { get; set; }
     public DbSet<UserMemoryConsolidationState> UserMemoryConsolidationStates { get; set; }
+    public DbSet<UserMemoryItem> UserMemoryItems { get; set; }
     public DbSet<DeferredIntent> DeferredIntents { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -25,6 +26,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         {
             modelBuilder.Entity<ChatTurn>().Ignore(x => x.SearchVector);
             modelBuilder.Entity<ChatTurn>().Ignore(x => x.Embedding);
+            modelBuilder.Entity<UserMemoryItem>().Ignore(x => x.Embedding);
         }
     }
 }

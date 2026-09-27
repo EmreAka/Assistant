@@ -27,6 +27,7 @@ public static class BotServiceRegistration
         services.Configure<BotOptions>(configuration.GetSection("Bot"));
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
         services.Configure<EmbeddingOptions>(configuration.GetSection("Embeddings"));
+        services.Configure<MemoryItemOptions>(configuration.GetSection("MemoryItems"));
         // Singleton RuvioClient; the TCP connection opens when DI first creates it.
         services.AddRuvioClient(configuration.GetSection("Ruvio"));
         // Ruvio.Client sends AUTH whenever Password is non-null, so an empty value from config
@@ -72,6 +73,9 @@ public static class BotServiceRegistration
         services.AddScoped<IChatTurnService, ChatTurnService>();
         services.AddScoped<IPersonalityService, PersonalityService>();
         services.AddScoped<IMemoryService, MemoryService>();
+        services.AddScoped<IMemoryItemService, MemoryItemService>();
+        services.AddScoped<IMemoryExtractionAgentService, MemoryExtractionAgentService>();
+        services.AddScoped<IMemoryExtractionCoordinator, MemoryExtractionCoordinator>();
         services.AddScoped<IMemoryConsolidationScheduler, MemoryConsolidationScheduler>();
         services.AddScoped<IMemoryConsolidationCoordinator, MemoryConsolidationCoordinator>();
         services.AddScoped<IMemoryConsolidationAgentService, MemoryConsolidationAgentService>();

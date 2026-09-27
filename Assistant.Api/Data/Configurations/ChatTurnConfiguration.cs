@@ -42,6 +42,9 @@ public class ChatTurnConfiguration : IEntityTypeConfiguration<ChatTurn>
             .HasColumnName("embedding")
             .HasColumnType("vector(768)");
 
+        builder.Property(x => x.MemoryProcessedAt)
+            .HasColumnName("memory_processed_at");
+
         builder.Property(x => x.CreatedAt)
             .HasColumnName("created_at")
             .IsRequired();

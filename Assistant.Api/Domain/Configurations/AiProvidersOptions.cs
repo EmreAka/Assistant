@@ -36,6 +36,12 @@ public class OpenRouterReasoningOptions
     /// and many keep/drop rules, so it gets the most reasoning.
     /// </summary>
     public ReasoningEffort MemoryConsolidation { get; set; } = ReasoningEffort.High;
+
+    /// <summary>
+    /// Background memory item extraction and reconciliation. Runs off the reply path and decides
+    /// what goes into long-term memory, so it gets the maximum effort (sent as "xhigh").
+    /// </summary>
+    public ReasoningEffort MemoryExtraction { get; set; } = ReasoningEffort.ExtraHigh;
 }
 
 /// <summary>
