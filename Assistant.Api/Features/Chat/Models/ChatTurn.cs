@@ -13,5 +13,7 @@ public class ChatTurn
     public string AssistantMessage { get; set; } = string.Empty;
     public NpgsqlTsVector SearchVector { get; set; } = null!;
     public Vector? Embedding { get; set; }
+    // NULL means "not extracted into memory items yet", so the column is the extraction work queue.
+    public DateTime? MemoryProcessedAt { get; set; }
     public DateTime CreatedAt { get; set; }
 }
