@@ -29,13 +29,13 @@ public class OpenRouterReasoningOptions
     /// Interactive chat and deferred task runs. Needs enough reasoning for tool calls, dates and
     /// cron expressions, while staying fast enough for a Telegram reply.
     /// </summary>
-    public ReasoningEffort Chat { get; set; } = ReasoningEffort.Medium;
+    public ReasoningEffort Chat { get; set; } = ReasoningEffort.ExtraHigh;
 
     /// <summary>
     /// Background memory merge. Runs rarely and off the reply path, and has to weigh contradictions
     /// and many keep/drop rules, so it gets the most reasoning.
     /// </summary>
-    public ReasoningEffort MemoryConsolidation { get; set; } = ReasoningEffort.High;
+    public ReasoningEffort MemoryConsolidation { get; set; } = ReasoningEffort.ExtraHigh;
 
     /// <summary>
     /// Background memory item extraction and reconciliation. Runs off the reply path and decides
