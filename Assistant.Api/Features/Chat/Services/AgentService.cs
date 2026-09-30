@@ -93,6 +93,13 @@ public class AgentService(
                 ? BuildChatInstructions()
                 : $"{BuildChatInstructions()}{Environment.NewLine}{Environment.NewLine}{systemInstructionsAugmentation}";
 
+#pragma warning disable MEAI001
+            var chatHistoryProvider = new InMemoryChatHistoryProvider(new()
+            {
+                ChatReducer = new MessageCountingChatReducer(40)
+            });
+#pragma warning restore MEAI001
+
             // chatClient is a DI singleton (see BotServiceRegistration) so the OpenAI SDK's HTTP
             // pipeline and connection pool are shared process-wide instead of being created and
             // disposed on every message.
@@ -118,16 +125,11 @@ public class AgentService(
                         chatHistorySearchProvider,
                         //new PendingTaskContextProvider(chatId, dbContext, assistantTimeService)
                     ],
-#pragma warning disable MEAI001
-                    ChatHistoryProvider = new InMemoryChatHistoryProvider(new()
-                    {
-                        ChatReducer = new MessageCountingChatReducer(40)
-                    })
-#pragma warning restore MEAI001
+                    ChatHistoryProvider = chatHistoryProvider
                 }
             );
 
-            var (session, persistSession) = await LoadSessionAsync(agent, chatId, cancellationToken);
+            var (session, persistSession) = await LoadSessionAsync(agent, chatHistoryProvider, chatId, cancellationToken);
 
             var response = await agent.RunAsync(userInput, session, cancellationToken: cancellationToken);
 
@@ -157,6 +159,7 @@ public class AgentService(
     /// </summary>
     private async Task<(AgentSession Session, bool PersistSession)> LoadSessionAsync(
         AIAgent agent,
+        InMemoryChatHistoryProvider chatHistoryProvider,
         long chatId,
         CancellationToken cancellationToken)
     {
@@ -178,7 +181,11 @@ public class AgentService(
 
         try
         {
-            return (await agent.DeserializeSessionAsync(storedSession.Value, cancellationToken: cancellationToken), true);
+            var session = await agent.DeserializeSessionAsync(storedSession.Value, cancellationToken: cancellationToken);
+            // State bag values are deserialized lazily, so a broken history would only throw inside
+            // RunAsync. Reading it here moves that failure into this catch.
+            chatHistoryProvider.GetMessages(session);
+            return (session, true);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

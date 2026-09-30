@@ -13,6 +13,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserMemoryConsolidationState> UserMemoryConsolidationStates { get; set; }
     public DbSet<UserMemoryItem> UserMemoryItems { get; set; }
     public DbSet<DeferredIntent> DeferredIntents { get; set; }
+    public DbSet<StoredAgentSession> AgentSessions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
