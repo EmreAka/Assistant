@@ -55,7 +55,7 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 - **OpenRouter web search**: the `openrouter:web_search` server tool is patched into the outgoing `tools` array by `OpenRouterOptions.CreateRawChatCompletionOptions()` (wired through `ChatOptions.RawRepresentationFactory`). OpenRouter runs the search server-side, so there is no local web search tool function
 - **Reasoning effort per agent**: `AIProviders:OpenRouter:Reasoning` (`Chat`, `MemoryConsolidation`, `MemoryExtraction`) is applied through `ChatOptions.Reasoning`, which the OpenAI adapter sends as `reasoning_effort` (OpenRouter's shorthand for `reasoning.effort`)
 - **MessageCountingChatReducer** (40 messages) to manage the chat history window
-- Session state (including the in-memory chat history) is serialized with `SerializeSessionAsync` and stored per chat ID in **Ruvio** (Redis-protocol store) by `RuvioAgentSessionStore` under `assistant:agent-session:{chatId}`, so it survives app restarts. The `RuvioClient` singleton is registered with `Ruvio.Client.AspNetCore` (`AddRuvioClient`, `Ruvio` config section). If Ruvio can't be read, the turn runs on a fresh session that is not saved, so stored history is never overwritten
+- Session state (including the in-memory chat history) is serialized with `SerializeSessionAsync` and stored per chat ID in the PostgreSQL `agent_sessions` table by `AgentSessionStore`, so it survives app restarts. It is loaded before and upserted after each run under the per-chat gate. If the table can't be read, the turn runs on a fresh session that is not saved, so stored history is never overwritten; an unreadable session is replaced
 
 **Memory Items**: Instead of inline memory updates via tools, long-term memory is stored as separate facts (`UserMemoryItem`, each with a `vector(768)` embedding). `MemoryExtractionJob` sends unprocessed chat turns to `MemoryExtractionAgentService`, which extracts candidate facts (structured output via `GetResponseAsync<T>`, only facts the user stated). Each candidate is embedded and compared with its nearest active items; candidates without neighbors are added directly, the rest go through one reconcile call returning `add`/`update`/`delete`/`noop`. Decisions are validated in code (target must be one of the offered neighbors) and applied in one `SaveChanges`. The memory agent runs on its own model (`MemoryItems:Model`, default `deepseek/deepseek-v4.1-flash`) at `Reasoning:MemoryExtraction` (default `ExtraHigh`, sent as `xhigh`); the model is switched per request with `ChatOptions.ModelId` on the shared chat client. `update` supersedes the old row instead of editing it; `delete` is soft. On first run, a user's active `UserMemoryManifest` is imported once. See `MEMORY_ITEMS_PLAN.md`.
 
@@ -90,13 +90,14 @@ Hangfire uses PostgreSQL storage. Dashboard at `/hangfire` in development.
 
 ### Database (EF Core + PostgreSQL)
 
-Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `UserMemoryItem`, `DeferredIntent`, plus the legacy `UserMemoryManifest` and `UserMemoryConsolidationState`
+Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `UserMemoryItem`, `DeferredIntent`, `StoredAgentSession`, plus the legacy `UserMemoryManifest` and `UserMemoryConsolidationState`
 
 Important persistence notes:
 - `ChatTurn` stores normalized user/assistant messages plus a `vector(768)` embedding (filled by `ChatTurnEmbeddingJob`) and is searched semantically via pgvector cosine distance. The old full-text `search_vector` column still exists but is unused
 - `ChatTurn.MemoryProcessedAt` is the memory extraction work queue (`NULL` = not extracted yet)
 - Memory is stored as `UserMemoryItem` rows: `Text`, `Category` (fixed set in `UserMemoryItemCategories`), `IsCore`, `Status` (`active`, `superseded`, `deleted`), `Embedding`, `SourceTurnIds`, `SupersededById`, `ChangeReason`, `LastConfirmedAt`. All pgvector queries for them live in `MemoryItemService`
 - `UserMemoryManifest` rows are kept (read once for the import) but no longer written
+- `StoredAgentSession` (`agent_sessions`) holds one serialized `AgentSession` per chat ID in a `json` column. Not `jsonb`: it reorders keys, and the `$type` discriminators must stay first to deserialize. Saves are a raw `INSERT ... ON CONFLICT` upsert, so nothing is left tracked on the shared `DbContext`
 - `DeferredIntent.Status` values are `pending`, `scheduled`, `recurring`, `completed`, `cancelled`, `failed`
 - `UserMemoryConsolidationState` tracked the legacy consolidation progress per user and is no longer updated
 
@@ -121,7 +122,6 @@ AIProviders:XAI:ApiKey
 AIProviders:GoogleAIStudio:ApiKey   # only if you re-enable WebSearchToolFunctions
 ConnectionStrings:PostgreSQL
 ConnectionStrings:HangfireDb
-Ruvio:Host / Ruvio:Port / Ruvio:Password   # agent session store
 ```
 
 `AIProviders:DefaultTimeZoneId` controls timezone for scheduled tasks (default: `Europe/Istanbul`).

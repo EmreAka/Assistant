@@ -7,8 +7,6 @@ using Assistant.Api.Services.Abstracts;
 using Assistant.Api.Services.Concretes;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
-using Ruvio.Client;
-using Ruvio.Client.AspNetCore;
 using System.Net.Http.Headers;
 using Telegram.Bot;
 
@@ -28,17 +26,6 @@ public static class BotServiceRegistration
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
         services.Configure<EmbeddingOptions>(configuration.GetSection("Embeddings"));
         services.Configure<MemoryItemOptions>(configuration.GetSection("MemoryItems"));
-        // Singleton RuvioClient; the TCP connection opens when DI first creates it.
-        services.AddRuvioClient(configuration.GetSection("Ruvio"));
-        // Ruvio.Client sends AUTH whenever Password is non-null, so an empty value from config
-        // ("Password": "" or an empty env var) fails against a server without requirepass.
-        services.PostConfigure<RuvioClientOptions>(options =>
-        {
-            if (string.IsNullOrEmpty(options.Password))
-            {
-                options.Password = null;
-            }
-        });
 
         // NOTE: the named "OpenRouter" HttpClient registration was removed here. No code path ever
         // resolved it (the OpenAI SDK builds its own transport), so its configuration - including the
@@ -94,7 +81,7 @@ public static class BotServiceRegistration
         services.AddScoped<IChatTurnEmbeddingService, ChatTurnEmbeddingService>();
         services.AddScoped<IChatTurnEmbeddingCoordinator, ChatTurnEmbeddingCoordinator>();
 
-        services.AddSingleton<IAgentSessionStore, RuvioAgentSessionStore>();
+        services.AddScoped<IAgentSessionStore, AgentSessionStore>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
 
