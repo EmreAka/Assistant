@@ -11,6 +11,9 @@ public class EmotionService(
     IOptions<EmotionOptions> emotionOptions
 ) : IEmotionService
 {
+    // How far from the baseline (on both axes) a decayed mood still counts as the baseline mood.
+    private const double BaselineMoodRange = 0.1;
+
     private readonly EmotionOptions _options = emotionOptions.Value;
 
     public async Task<AgentEmotionState> GetAsync(int telegramUserId, CancellationToken cancellationToken = default)
@@ -19,13 +22,62 @@ public class EmotionService(
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.TelegramUserId == telegramUserId, cancellationToken);
 
-        return state ?? new AgentEmotionState
+        return state is null
+            ? new AgentEmotionState
+            {
+                TelegramUserId = telegramUserId,
+                Valence = _options.BaselineValence,
+                Arousal = _options.BaselineArousal,
+                Mood = _options.BaselineMood,
+                UpdatedAt = DateTime.UtcNow
+            }
+            : Decay(state, _options, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Moves a stored mood back toward the baseline: half of the distance is gone after each
+    /// HalfLifeHours. Computed on read, nothing is written. Once more than half has faded, the stored
+    /// label and reason describe a moment that has passed, so the label is derived from the decayed
+    /// numbers and the reason is dropped. HalfLifeHours &lt;= 0 turns decay off.
+    /// </summary>
+    public static AgentEmotionState Decay(AgentEmotionState stored, EmotionOptions options, DateTime nowUtc)
+    {
+        var hours = Math.Max(0, (nowUtc - stored.UpdatedAt).TotalHours);
+        var factor = options.HalfLifeHours > 0 ? Math.Pow(0.5, hours / options.HalfLifeHours) : 1;
+
+        var valence = options.BaselineValence + (stored.Valence - options.BaselineValence) * factor;
+        var arousal = options.BaselineArousal + (stored.Arousal - options.BaselineArousal) * factor;
+        var isStale = factor < 0.5;
+
+        return new AgentEmotionState
         {
-            TelegramUserId = telegramUserId,
-            Valence = _options.BaselineValence,
-            Arousal = _options.BaselineArousal,
-            Mood = _options.BaselineMood,
-            UpdatedAt = DateTime.UtcNow
+            TelegramUserId = stored.TelegramUserId,
+            Valence = valence,
+            Arousal = arousal,
+            Mood = isStale ? DeriveMood(valence, arousal, options) : stored.Mood,
+            Reason = isStale ? string.Empty : stored.Reason,
+            UpdatedAt = stored.UpdatedAt,
+            LastTurnId = stored.LastTurnId
+        };
+    }
+
+    // Fixed quadrant labels around the baseline, for a mood whose own label has gone stale.
+    private static string DeriveMood(double valence, double arousal, EmotionOptions options)
+    {
+        var valenceOffset = valence - options.BaselineValence;
+        var arousalOffset = arousal - options.BaselineArousal;
+
+        if (Math.Abs(valenceOffset) < BaselineMoodRange && Math.Abs(arousalOffset) < BaselineMoodRange)
+        {
+            return options.BaselineMood;
+        }
+
+        return (valenceOffset >= 0, arousalOffset >= 0) switch
+        {
+            (true, true) => "cheerful",
+            (true, false) => "content",
+            (false, true) => "tense",
+            (false, false) => "a bit down"
         };
     }
 
