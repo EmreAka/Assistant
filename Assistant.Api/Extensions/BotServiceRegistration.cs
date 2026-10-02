@@ -92,6 +92,7 @@ public static class BotServiceRegistration
         services.AddTransient<IBotCommand, StartCommand>();
         services.AddTransient<IBotCommand, ChatCommand>();
         services.AddTransient<IBotCommand, TtsCommand>();
+        services.AddTransient<IBotCommand, MoodCommand>();
         services.AddTransient<IBotCommandFactory, BotCommandFactory>();
         services.AddTransient<ICommandUpdateHandler, CommandUpdateHandler>();
 

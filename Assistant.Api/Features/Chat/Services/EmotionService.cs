@@ -12,7 +12,7 @@ public class EmotionService(
 ) : IEmotionService
 {
     // How far from the baseline (on both axes) a decayed mood still counts as the baseline mood.
-    private const double BaselineMoodRange = 0.1;
+    public const double BaselineMoodRange = 0.1;
 
     private readonly EmotionOptions _options = emotionOptions.Value;
 
