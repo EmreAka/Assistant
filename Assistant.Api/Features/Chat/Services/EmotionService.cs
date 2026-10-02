@@ -11,8 +11,8 @@ public class EmotionService(
     IOptions<EmotionOptions> emotionOptions
 ) : IEmotionService
 {
-    // How far from the baseline (on both axes) a decayed mood still counts as the baseline mood.
-    public const double BaselineMoodRange = 0.1;
+    // How far from the baseline (on both axes) a mood still counts as the baseline mood.
+    private const double BaselineMoodRange = 0.1;
 
     private readonly EmotionOptions _options = emotionOptions.Value;
 
@@ -32,6 +32,17 @@ public class EmotionService(
                 UpdatedAt = DateTime.UtcNow
             }
             : Decay(state, _options, DateTime.UtcNow);
+    }
+
+    public async Task<AgentEmotionState?> GetByChatIdAsync(long chatId, CancellationToken cancellationToken = default)
+    {
+        var telegramUserId = await dbContext.TelegramUsers
+            .AsNoTracking()
+            .Where(x => x.ChatId == chatId)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return telegramUserId is null ? null : await GetAsync(telegramUserId.Value, cancellationToken);
     }
 
     /// <summary>
@@ -61,23 +72,39 @@ public class EmotionService(
         };
     }
 
-    // Fixed quadrant labels around the baseline, for a mood whose own label has gone stale.
+    // Fixed labels per quadrant, for a mood whose own label has gone stale.
     private static string DeriveMood(double valence, double arousal, EmotionOptions options)
+    {
+        return GetQuadrant(valence, arousal, options) switch
+        {
+            MoodQuadrant.Cheerful => "cheerful",
+            MoodQuadrant.Content => "content",
+            MoodQuadrant.Tense => "tense",
+            MoodQuadrant.Down => "a bit down",
+            _ => options.BaselineMood
+        };
+    }
+
+    /// <summary>
+    /// Where a mood sits relative to the baseline: near it on both axes, or in one of the four
+    /// quadrants. Shared by the derived labels, /mood's emoji and the TTS delivery.
+    /// </summary>
+    public static MoodQuadrant GetQuadrant(double valence, double arousal, EmotionOptions options)
     {
         var valenceOffset = valence - options.BaselineValence;
         var arousalOffset = arousal - options.BaselineArousal;
 
         if (Math.Abs(valenceOffset) < BaselineMoodRange && Math.Abs(arousalOffset) < BaselineMoodRange)
         {
-            return options.BaselineMood;
+            return MoodQuadrant.Baseline;
         }
 
         return (valenceOffset >= 0, arousalOffset >= 0) switch
         {
-            (true, true) => "cheerful",
-            (true, false) => "content",
-            (false, true) => "tense",
-            (false, false) => "a bit down"
+            (true, true) => MoodQuadrant.Cheerful,
+            (true, false) => MoodQuadrant.Content,
+            (false, true) => MoodQuadrant.Tense,
+            (false, false) => MoodQuadrant.Down
         };
     }
 

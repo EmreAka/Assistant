@@ -1,15 +1,12 @@
 using System.Globalization;
-using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Microsoft.Agents.AI;
-using Microsoft.EntityFrameworkCore;
 
 namespace Assistant.Api.Features.Chat.Services;
 
 // The assistant's current mood (see EMOTION_PLAN.md). The chat model only reads it; EmotionUpdateJob sets it.
 public class EmotionContextProvider(
     long chatId,
-    ApplicationDbContext dbContext,
     IEmotionService emotionService,
     EmotionOptions options,
     ILogger logger
@@ -26,18 +23,11 @@ public class EmotionContextProvider(
 
         try
         {
-            var telegramUserId = await dbContext.TelegramUsers
-                .AsNoTracking()
-                .Where(x => x.ChatId == chatId)
-                .Select(x => (int?)x.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (telegramUserId is null)
+            var state = await emotionService.GetByChatIdAsync(chatId, cancellationToken);
+            if (state is null)
             {
                 return new AIContext();
             }
-
-            var state = await emotionService.GetAsync(telegramUserId.Value, cancellationToken);
 
             var why = string.IsNullOrWhiteSpace(state.Reason)
                 ? string.Empty

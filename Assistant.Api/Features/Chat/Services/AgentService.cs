@@ -121,7 +121,7 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
-                        new EmotionContextProvider(chatId, dbContext, emotionService, _emotionOptions, logger),
+                        new EmotionContextProvider(chatId, emotionService, _emotionOptions, logger),
                         // Replaced by MemoryItemContextProvider (see MEMORY_ITEMS_PLAN.md). Kept to allow switching back.
                         // new MemoryContextProvider(chatId, memoryService),
                         new MemoryItemContextProvider(chatId, memoryItemService, queryVector, logger),

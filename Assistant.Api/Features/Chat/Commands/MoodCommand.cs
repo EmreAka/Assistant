@@ -1,11 +1,10 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
-using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
+using Assistant.Api.Features.Chat.Models;
 using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Services.Abstracts;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -14,7 +13,6 @@ namespace Assistant.Api.Features.Chat.Commands;
 
 // Shows the assistant's current (decayed) mood, built in code without a model call (see EMOTION_PLAN.md step 5).
 public class MoodCommand(
-    ApplicationDbContext dbContext,
     IEmotionService emotionService,
     IAssistantTimeService assistantTimeService,
     IOptions<EmotionOptions> emotionOptions,
@@ -43,22 +41,15 @@ public class MoodCommand(
             return;
         }
 
-        var telegramUserId = await dbContext.TelegramUsers
-            .AsNoTracking()
-            .Where(x => x.ChatId == chatId.Value)
-            .Select(x => (int?)x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (telegramUserId is null)
+        var state = await emotionService.GetByChatIdAsync(chatId.Value, cancellationToken);
+        if (state is null)
         {
             await responseSender.SendResponseAsync(chatId.Value, "Kullanıcı kaydı bulunamadı, önce /start yazabilirsin.", cancellationToken);
             return;
         }
 
-        var state = await emotionService.GetAsync(telegramUserId.Value, cancellationToken);
-
         var response = new StringBuilder();
-        response.AppendLine($"*{GetEmoji(state.Valence, state.Arousal)} Ruh hâli*");
+        response.AppendLine($"*{GetEmoji(state)} Ruh hâli*");
         response.AppendLine($"Şu an: {EscapeMarkdown(state.Mood)}");
         if (!string.IsNullOrWhiteSpace(state.Reason))
         {
@@ -82,25 +73,14 @@ public class MoodCommand(
         await responseSender.SendResponseAsync(chatId.Value, response.ToString().TrimEnd(), cancellationToken);
     }
 
-    // Same quadrants around the baseline as EmotionService's derived labels.
-    private string GetEmoji(double valence, double arousal)
+    private string GetEmoji(AgentEmotionState state) => EmotionService.GetQuadrant(state.Valence, state.Arousal, _options) switch
     {
-        var valenceOffset = valence - _options.BaselineValence;
-        var arousalOffset = arousal - _options.BaselineArousal;
-
-        if (Math.Abs(valenceOffset) < EmotionService.BaselineMoodRange && Math.Abs(arousalOffset) < EmotionService.BaselineMoodRange)
-        {
-            return "😌";
-        }
-
-        return (valenceOffset >= 0, arousalOffset >= 0) switch
-        {
-            (true, true) => "😄",
-            (true, false) => "😊",
-            (false, true) => "😬",
-            (false, false) => "😔"
-        };
-    }
+        MoodQuadrant.Cheerful => "😄",
+        MoodQuadrant.Content => "😊",
+        MoodQuadrant.Tense => "😬",
+        MoodQuadrant.Down => "😔",
+        _ => "😌"
+    };
 
     // Mood and reason are model output; legacy Markdown would otherwise read "_" or "*" in them as formatting.
     private static string EscapeMarkdown(string text) => Regex.Replace(text, @"([_*`\[])", @"\$1");

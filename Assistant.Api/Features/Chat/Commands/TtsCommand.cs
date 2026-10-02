@@ -1,9 +1,7 @@
-using Assistant.Api.Data;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Features.Chat.Models;
 using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Services.Abstracts;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -13,7 +11,6 @@ namespace Assistant.Api.Features.Chat.Commands;
 public class TtsCommand(
     IChatTurnService chatTurnService,
     ITextToSpeechService textToSpeechService,
-    ApplicationDbContext dbContext,
     IEmotionService emotionService,
     IOptions<EmotionOptions> emotionOptions,
     ITelegramResponseSender responseSender,
@@ -72,13 +69,7 @@ public class TtsCommand(
 
         try
         {
-            var telegramUserId = await dbContext.TelegramUsers
-                .AsNoTracking()
-                .Where(x => x.ChatId == chatId)
-                .Select(x => (int?)x.Id)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            return telegramUserId is null ? null : await emotionService.GetAsync(telegramUserId.Value, cancellationToken);
+            return await emotionService.GetByChatIdAsync(chatId, cancellationToken);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {

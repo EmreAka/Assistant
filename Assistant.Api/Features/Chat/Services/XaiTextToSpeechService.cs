@@ -53,8 +53,8 @@ public class XaiTextToSpeechService(
         return await response.Content.ReadAsByteArrayAsync(cancellationToken);
     }
 
-    // Maps the mood quadrant around the baseline (same split as EmotionService's derived labels) to
-    // xAI's documented delivery controls: the speed parameter (0.7-1.5) and wrapping speech tags.
+    // Maps the mood quadrant (EmotionService.GetQuadrant) to xAI's documented delivery controls: the
+    // speed parameter (0.7-1.5) and wrapping speech tags.
     // There is no emotion parameter. Kept mild, so a mood never makes the audio hard to follow.
     private (double? Speed, string? WrapTag) GetDelivery(AgentEmotionState? mood)
     {
@@ -63,20 +63,13 @@ public class XaiTextToSpeechService(
             return (null, null);
         }
 
-        var valenceOffset = mood.Valence - _emotionOptions.BaselineValence;
-        var arousalOffset = mood.Arousal - _emotionOptions.BaselineArousal;
-
-        if (Math.Abs(valenceOffset) < EmotionService.BaselineMoodRange && Math.Abs(arousalOffset) < EmotionService.BaselineMoodRange)
+        return EmotionService.GetQuadrant(mood.Valence, mood.Arousal, _emotionOptions) switch
         {
-            return (null, null);
-        }
-
-        return (valenceOffset >= 0, arousalOffset >= 0) switch
-        {
-            (true, true) => (1.1, null),
-            (true, false) => (0.95, "soft"),
-            (false, true) => (1.05, null),
-            (false, false) => (0.9, "soft")
+            MoodQuadrant.Cheerful => (1.1, null),
+            MoodQuadrant.Content => (0.95, "soft"),
+            MoodQuadrant.Tense => (1.05, null),
+            MoodQuadrant.Down => (0.9, "soft"),
+            _ => (null, null)
         };
     }
 

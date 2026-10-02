@@ -80,4 +80,17 @@ public class EmotionDecayTests
 
         Assert.Equal(expectedMood, decayed.Mood);
     }
+
+    [Theory]
+    [InlineData(0.35, 0.45, MoodQuadrant.Baseline)]
+    [InlineData(0.6, 0.8, MoodQuadrant.Cheerful)]
+    [InlineData(0.6, 0.2, MoodQuadrant.Content)]
+    [InlineData(-0.4, 0.8, MoodQuadrant.Tense)]
+    [InlineData(-0.4, 0.2, MoodQuadrant.Down)]
+    // Only one axis outside the baseline range is enough to leave it.
+    [InlineData(0.3, 0.75, MoodQuadrant.Cheerful)]
+    public void GetQuadrant_SplitsAroundBaseline(double valence, double arousal, MoodQuadrant expected)
+    {
+        Assert.Equal(expected, EmotionService.GetQuadrant(valence, arousal, Options));
+    }
 }
