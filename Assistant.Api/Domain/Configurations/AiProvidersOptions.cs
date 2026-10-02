@@ -42,6 +42,12 @@ public class OpenRouterReasoningOptions
     /// what goes into long-term memory, so it gets the maximum effort (sent as "xhigh").
     /// </summary>
     public ReasoningEffort MemoryExtraction { get; set; } = ReasoningEffort.ExtraHigh;
+
+    /// <summary>
+    /// Background mood update after each chat turn. It only classifies one turn into a fixed event
+    /// type and intensity, so low effort is enough.
+    /// </summary>
+    public ReasoningEffort Emotion { get; set; } = ReasoningEffort.Low;
 }
 
 /// <summary>

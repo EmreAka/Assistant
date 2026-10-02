@@ -26,6 +26,7 @@ public static class BotServiceRegistration
         services.Configure<MemoryConsolidationOptions>(configuration.GetSection("MemoryConsolidation"));
         services.Configure<EmbeddingOptions>(configuration.GetSection("Embeddings"));
         services.Configure<MemoryItemOptions>(configuration.GetSection("MemoryItems"));
+        services.Configure<EmotionOptions>(configuration.GetSection("Emotion"));
 
         // NOTE: the named "OpenRouter" HttpClient registration was removed here. No code path ever
         // resolved it (the OpenAI SDK builds its own transport), so its configuration - including the
@@ -82,6 +83,7 @@ public static class BotServiceRegistration
         services.AddScoped<IChatTurnEmbeddingCoordinator, ChatTurnEmbeddingCoordinator>();
 
         services.AddScoped<IAgentSessionStore, AgentSessionStore>();
+        services.AddScoped<IEmotionService, EmotionService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
 
