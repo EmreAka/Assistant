@@ -37,6 +37,25 @@ public class EmotionOptions
         ["medium"] = 1.0,
         ["high"] = 1.5
     };
+
+    public EmotionCheckInOptions CheckIns { get; set; } = new();
+}
+
+// Check-ins the assistant schedules on its own after the user mentions an upcoming event (EMOTION_PLAN.md step 7).
+public class EmotionCheckInOptions
+{
+    public bool Enabled { get; set; } = false;
+
+    // Local times (AIProviders:DefaultTimeZoneId). A check-in inside the window is moved to its end.
+    // A window whose start is after its end runs past midnight.
+    public TimeOnly QuietHoursStart { get; set; } = new(23, 0);
+    public TimeOnly QuietHoursEnd { get; set; } = new(9, 0);
+
+    // A check-in is dropped when the user wrote this recently; they're already talking.
+    public int MinMinutesSinceLastMessage { get; set; } = 30;
+
+    // Follow-ups further ahead than this are ignored.
+    public int MaxDaysAhead { get; set; } = 7;
 }
 
 public class EmotionEventEffect

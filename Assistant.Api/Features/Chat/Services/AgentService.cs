@@ -260,6 +260,7 @@ public class AgentService(
                - Use RescheduleTask when the user asks to move, delay, bring forward, or otherwise change the schedule of an existing task or reminder.
                - When cancelling or rescheduling and you do not already have the exact Task ID from context, call ListTasks first to identify the correct task.
                - After scheduling or rescheduling, mention the exact local date/time or cron schedule in your response.
+               - Tasks marked [self check-in] are check-ins you scheduled yourself. Mention them only if the user asks about tasks or check-ins; cancel them with CancelTask if the user doesn't want them.
 
                Web search rules:
                - You have built-in web search. Use it for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.

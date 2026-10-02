@@ -8,6 +8,7 @@ namespace Assistant.Api.Features.Chat.Services;
 
 public class EmotionAgentService(
     IChatClient chatClient,
+    IAssistantTimeService assistantTimeService,
     IOptions<AiProvidersOptions> aiOptions,
     IOptions<EmotionOptions> emotionOptions
 ) : IEmotionAgentService
@@ -36,10 +37,11 @@ public class EmotionAgentService(
         IReadOnlyList<string> userMemory,
         string userMessage,
         string assistantMessage,
+        DateTime turnCreatedAtUtc,
         CancellationToken cancellationToken)
     {
         var response = await chatClient.GetResponseAsync<EmotionReaction>(
-            new ChatMessage(ChatRole.User, BuildInput(currentMood, userMemory, userMessage, assistantMessage)),
+            new ChatMessage(ChatRole.User, BuildInput(currentMood, userMemory, userMessage, assistantMessage, turnCreatedAtUtc)),
             new ChatOptions
             {
                 Instructions = BuildInstructions(personality),
@@ -92,15 +94,42 @@ public class EmotionAgentService(
                 - reason is one short sentence on why, at most {AgentEmotionState.MaxReasonLength}
                   characters, in English (e.g. "user's exam is tomorrow"). Empty keeps the current reason;
                   use empty for neutral turns.
+
+                {BuildFollowUpRules()}
                 """;
     }
 
-    private static string BuildInput(
+    private string BuildFollowUpRules()
+    {
+        if (!_options.CheckIns.Enabled)
+        {
+            return "followUp is always null.";
+        }
+
+        return $"""
+                followUp rules:
+                - Fill followUp only when the user mentioned a specific upcoming event in their own life
+                  that matters to them (an exam, a job interview, a doctor's appointment, a trip).
+                  Otherwise it is null. Never for tasks or reminders the user asked the persona to do.
+                - localTime is when the persona checks in to ask how it went: shortly after the event
+                  ends, in the turn's time zone, formatted as {EmotionFollowUp.LocalTimeFormat}.
+                  Resolve relative dates ("tomorrow at 10") from the turn's local time.
+                - note is one short sentence in English on what to ask about
+                  (e.g. "how the user's exam went").
+                """;
+    }
+
+    private string BuildInput(
         AgentEmotionState currentMood,
         IReadOnlyList<string> userMemory,
         string userMessage,
-        string assistantMessage)
+        string assistantMessage,
+        DateTime turnCreatedAtUtc)
     {
+        var turnLocalTime = assistantTimeService.FormatUtcForDisplay(
+            turnCreatedAtUtc,
+            assistantTimeService.DefaultTimeZoneId,
+            "yyyy-MM-dd HH:mm (dddd)");
         var reason = string.IsNullOrWhiteSpace(currentMood.Reason) ? "none" : currentMood.Reason;
         var memory = userMemory.Count == 0
             ? "none"
@@ -113,7 +142,7 @@ public class EmotionAgentService(
              <user_memory>
              {memory}
              </user_memory>
-             <turn>
+             <turn at="{turnLocalTime} {assistantTimeService.DefaultTimeZoneId}">
              <user>{userMessage}</user>
              <assistant>{assistantMessage}</assistant>
              </turn>

@@ -50,6 +50,12 @@ public class DeferredIntentConfiguration : IEntityTypeConfiguration<DeferredInte
             .HasMaxLength(32)
             .IsRequired();
 
+        builder.Property(x => x.Origin)
+            .HasColumnName("origin")
+            .HasMaxLength(16)
+            .IsRequired()
+            .HasDefaultValue(DeferredIntentOrigins.User);
+
         builder.Property(x => x.HangfireJobId)
             .HasColumnName("hangfire_job_id")
             .HasMaxLength(128);

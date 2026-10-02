@@ -1,3 +1,4 @@
+using System.Globalization;
 using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Features.Chat.Models;
 
@@ -12,6 +13,7 @@ public interface IEmotionAgentService
         IReadOnlyList<string> userMemory,
         string userMessage,
         string assistantMessage,
+        DateTime turnCreatedAtUtc,
         CancellationToken cancellationToken);
 }
 
@@ -21,7 +23,8 @@ public sealed record EmotionReaction(
     string EventType,
     string Intensity,
     string Mood,
-    string Reason)
+    string Reason,
+    EmotionFollowUp? FollowUp = null)
 {
     public const string FallbackEventType = "neutral";
     public const string FallbackIntensity = "low";
@@ -53,5 +56,52 @@ public sealed record EmotionReaction(
             Reason ?? string.Empty);
 
         return (delta, knownEvent && knownIntensity);
+    }
+}
+
+// A check-in the model suggests after the user mentions an upcoming event (EMOTION_PLAN.md step 7).
+// LocalTime is a plain string, validated in ResolveRunAtLocal, since it is model output.
+public sealed record EmotionFollowUp(
+    string LocalTime,
+    string Note)
+{
+    public const string LocalTimeFormat = "yyyy-MM-dd HH:mm";
+
+    /// <summary>
+    /// Returns when the check-in should run, in local time, or null when LocalTime is unparsable, not
+    /// after localNow, or more than MaxDaysAhead away. A time inside the quiet hours is moved to the
+    /// end of the window.
+    /// </summary>
+    public DateTime? ResolveRunAtLocal(DateTime localNow, EmotionCheckInOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(Note)
+            || !DateTime.TryParseExact(LocalTime?.Trim(), LocalTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var runAt)
+            || runAt <= localNow
+            || runAt > localNow.AddDays(options.MaxDaysAhead))
+        {
+            return null;
+        }
+
+        var time = TimeOnly.FromDateTime(runAt);
+        var start = options.QuietHoursStart;
+        var end = options.QuietHoursEnd;
+
+        if (start == end)
+        {
+            return runAt;
+        }
+
+        // A window like 23:00-09:00 runs past midnight: the late part ends the next morning.
+        if (start > end)
+        {
+            if (time >= start)
+            {
+                return runAt.Date.AddDays(1).Add(end.ToTimeSpan());
+            }
+
+            return time < end ? runAt.Date.Add(end.ToTimeSpan()) : runAt;
+        }
+
+        return time >= start && time < end ? runAt.Date.Add(end.ToTimeSpan()) : runAt;
     }
 }
