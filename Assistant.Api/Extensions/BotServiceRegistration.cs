@@ -84,6 +84,7 @@ public static class BotServiceRegistration
 
         services.AddScoped<IAgentSessionStore, AgentSessionStore>();
         services.AddScoped<IEmotionService, EmotionService>();
+        services.AddScoped<IEmotionAgentService, EmotionAgentService>();
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITextToSpeechService, XaiTextToSpeechService>();
 
