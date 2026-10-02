@@ -9,6 +9,7 @@ public interface IEmotionAgentService
     Task<EmotionReaction> ReactAsync(
         string personality,
         AgentEmotionState currentMood,
+        IReadOnlyList<string> userMemory,
         string userMessage,
         string assistantMessage,
         CancellationToken cancellationToken);

@@ -33,12 +33,13 @@ public class EmotionAgentService(
     public async Task<EmotionReaction> ReactAsync(
         string personality,
         AgentEmotionState currentMood,
+        IReadOnlyList<string> userMemory,
         string userMessage,
         string assistantMessage,
         CancellationToken cancellationToken)
     {
         var response = await chatClient.GetResponseAsync<EmotionReaction>(
-            new ChatMessage(ChatRole.User, BuildInput(currentMood, userMessage, assistantMessage)),
+            new ChatMessage(ChatRole.User, BuildInput(currentMood, userMemory, userMessage, assistantMessage)),
             new ChatOptions
             {
                 Instructions = BuildInstructions(personality),
@@ -67,9 +68,15 @@ public class EmotionAgentService(
                 {personality.Trim()}
                 </persona>
 
-                You receive the persona's current mood and the latest turn: the user's message and
-                the persona's reply. Classify the turn from the persona's point of view, mostly by
-                what the user said and how they said it. The persona's own reply is context only.
+                You receive the persona's current mood, what the persona remembers about the user,
+                and the latest turn: the user's message and the persona's reply. Classify the turn
+                from the persona's point of view, mostly by what the user said and how they said it.
+                The persona's own reply is context only.
+
+                <user_memory> lists what the persona knows about the user. It explains why something
+                in the turn matters to them: news about someone or something they care about can be a
+                higher intensity. It is never a reason to change the mood on its own; classify the
+                turn, not the memory.
 
                 eventType is exactly one of:
                 {eventTypes}
@@ -88,14 +95,24 @@ public class EmotionAgentService(
                 """;
     }
 
-    private static string BuildInput(AgentEmotionState currentMood, string userMessage, string assistantMessage)
+    private static string BuildInput(
+        AgentEmotionState currentMood,
+        IReadOnlyList<string> userMemory,
+        string userMessage,
+        string assistantMessage)
     {
         var reason = string.IsNullOrWhiteSpace(currentMood.Reason) ? "none" : currentMood.Reason;
+        var memory = userMemory.Count == 0
+            ? "none"
+            : string.Join(Environment.NewLine, userMemory.Select(x => $"- {x}"));
 
         return string.Create(
             CultureInfo.InvariantCulture,
             $"""
              <current_mood label="{currentMood.Mood}" valence="{currentMood.Valence:0.00}" arousal="{currentMood.Arousal:0.00}">{reason}</current_mood>
+             <user_memory>
+             {memory}
+             </user_memory>
              <turn>
              <user>{userMessage}</user>
              <assistant>{assistantMessage}</assistant>

@@ -14,6 +14,7 @@ public class EmotionUpdateJob(
     IEmotionService emotionService,
     IEmotionAgentService agentService,
     IPersonalityService personalityService,
+    IMemoryItemService memoryItemService,
     IOptions<EmotionOptions> options,
     ILogger<EmotionUpdateJob> logger
 )
@@ -50,9 +51,26 @@ public class EmotionUpdateJob(
             }
 
             var personality = await personalityService.GetPersonalityTextAsync(turn.ChatId, CancellationToken.None);
+
+            // Core memory items tell the mood model why something in the turn matters to the user.
+            // Without them the update still runs, just with less context.
+            IReadOnlyList<string> userMemory;
+            try
+            {
+                userMemory = (await memoryItemService.GetCoreItemsAsync(turn.ChatId, CancellationToken.None))
+                    .Select(x => x.Text)
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Memory items for mood update could not be loaded; continuing without them. TelegramUserId: {TelegramUserId}", telegramUserId);
+                userMemory = [];
+            }
+
             var reaction = await agentService.ReactAsync(
                 string.IsNullOrWhiteSpace(personality) ? PersonalityContextProvider.DefaultPersonalityText : personality,
                 currentMood,
+                userMemory,
                 turn.UserMessage,
                 turn.AssistantMessage,
                 CancellationToken.None);
