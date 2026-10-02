@@ -22,13 +22,16 @@ public class AgentService(
     IAssistantTimeService assistantTimeService,
     IChatClient chatClient,
     IAgentSessionStore sessionStore,
+    IEmotionService emotionService,
     IOptions<AiProvidersOptions> aiOptions,
+    IOptions<EmotionOptions> emotionOptions,
     ILogger<AgentService> logger,
     ILogger<TaskToolFunctions> taskToolLogger
 ) : IAgentService
 {
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
     private readonly ReasoningEffort _chatReasoningEffort = aiOptions.Value.OpenRouter.Reasoning.Chat;
+    private readonly EmotionOptions _emotionOptions = emotionOptions.Value;
 
     // Serializes agent runs per chat. Two concurrent runs for the same chat (two quick Telegram
     // messages, or a chat turn racing a DeferredIntentDispatchJob) could otherwise create two
@@ -118,6 +121,7 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
+                        new EmotionContextProvider(chatId, dbContext, emotionService, _emotionOptions, logger),
                         // Replaced by MemoryItemContextProvider (see MEMORY_ITEMS_PLAN.md). Kept to allow switching back.
                         // new MemoryContextProvider(chatId, memoryService),
                         new MemoryItemContextProvider(chatId, memoryItemService, queryVector, logger),
@@ -270,6 +274,12 @@ public class AgentService(
                - You may still avoid spelling out exact time values in your reply, but the underlying claim must always be consistent with Temporal Context.
                - Call GetCurrentDateTime only if Temporal Context is missing, stale, or the user explicitly asks for the current time.
                - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions. Derive them from Temporal Context, or call GetCurrentDateTime only when Temporal Context cannot answer.
+
+               Emotion rules:
+               - Current mood is how you feel right now. Let it colour your word choice, energy and emoji use slightly.
+               - Don't announce or describe your mood unless the user asks how you feel or it comes up naturally (for example, greeting them after a long gap).
+               - Your mood never makes you refuse, delay, or do worse at a task.
+               - Never mention the mood's numbers.
 
                Math calculation rules:
                - Use the Calculate tool for exact arithmetic, percentages, powers, parentheses, common numeric functions, and multi-step numeric calculations.
