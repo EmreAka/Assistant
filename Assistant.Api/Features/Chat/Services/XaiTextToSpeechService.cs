@@ -11,6 +11,7 @@ public class XaiTextToSpeechService(
     IHttpClientFactory httpClientFactory,
     IOptions<AiProvidersOptions> aiOptions,
     IOptions<EmotionOptions> emotionOptions,
+    ITtsDirectorService ttsDirector,
     ILogger<XaiTextToSpeechService> logger
 ) : ITextToSpeechService
 {
@@ -29,10 +30,13 @@ public class XaiTextToSpeechService(
 
         var client = httpClientFactory.CreateClient(BotServiceRegistration.XAiHttpClientName);
 
-        // Tags are added after sanitizing, so the sanitizer can't strip them.
+        // Tags are added after sanitizing, so the sanitizer can't strip them. The director's script
+        // places tags by content and mood; without it, the mood's wrapping tag covers the whole text.
         var (speed, wrapTag) = GetDelivery(mood);
+        var script = await ttsDirector.DirectAsync(sanitizedText, mood, cancellationToken)
+            ?? (wrapTag is null ? sanitizedText : $"<{wrapTag}>{sanitizedText}</{wrapTag}>");
         var request = new TtsRequest(
-            wrapTag is null ? sanitizedText : $"<{wrapTag}>{sanitizedText}</{wrapTag}>",
+            script,
             _options.TtsVoiceId,
             new TtsOutputFormat("mp3", 44100, 128000),
             _options.TtsLanguage,

@@ -48,6 +48,12 @@ public class OpenRouterReasoningOptions
     /// type and intensity, so low effort is enough.
     /// </summary>
     public ReasoningEffort Emotion { get; set; } = ReasoningEffort.Low;
+
+    /// <summary>
+    /// /tts script direction: placing speech tags so the voice matches the text and the mood. Runs
+    /// only when the user asks for audio and the result is heard directly, so it gets the maximum effort.
+    /// </summary>
+    public ReasoningEffort TtsDirection { get; set; } = ReasoningEffort.ExtraHigh;
 }
 
 /// <summary>
@@ -88,4 +94,8 @@ public class XAIOptions
     public string Model { get; set; } = "grok-4.3";
     public string TtsVoiceId { get; set; } = "Carina";
     public string TtsLanguage { get; set; } = "en";
+
+    // OpenRouter model that adds xAI speech tags to the /tts text (TtsDirectorService). Empty turns
+    // direction off; the mood-based speed and wrapping tag are used alone then.
+    public string TtsDirectorModel { get; set; } = "deepseek/deepseek-v4.1-flash";
 }
