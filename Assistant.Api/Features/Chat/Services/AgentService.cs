@@ -22,13 +22,16 @@ public class AgentService(
     IAssistantTimeService assistantTimeService,
     IChatClient chatClient,
     IAgentSessionStore sessionStore,
+    IEmotionService emotionService,
     IOptions<AiProvidersOptions> aiOptions,
+    IOptions<EmotionOptions> emotionOptions,
     ILogger<AgentService> logger,
     ILogger<TaskToolFunctions> taskToolLogger
 ) : IAgentService
 {
     private readonly AiProvidersOptions _aiOptions = aiOptions.Value;
     private readonly ReasoningEffort _chatReasoningEffort = aiOptions.Value.OpenRouter.Reasoning.Chat;
+    private readonly EmotionOptions _emotionOptions = emotionOptions.Value;
 
     // Serializes agent runs per chat. Two concurrent runs for the same chat (two quick Telegram
     // messages, or a chat turn racing a DeferredIntentDispatchJob) could otherwise create two
@@ -118,6 +121,7 @@ public class AgentService(
                     AIContextProviders =
                     [
                         new PersonalityContextProvider(chatId, personalityService),
+                        new EmotionContextProvider(chatId, emotionService, _emotionOptions, logger),
                         // Replaced by MemoryItemContextProvider (see MEMORY_ITEMS_PLAN.md). Kept to allow switching back.
                         // new MemoryContextProvider(chatId, memoryService),
                         new MemoryItemContextProvider(chatId, memoryItemService, queryVector, logger),
@@ -256,6 +260,7 @@ public class AgentService(
                - Use RescheduleTask when the user asks to move, delay, bring forward, or otherwise change the schedule of an existing task or reminder.
                - When cancelling or rescheduling and you do not already have the exact Task ID from context, call ListTasks first to identify the correct task.
                - After scheduling or rescheduling, mention the exact local date/time or cron schedule in your response.
+               - Tasks marked [self check-in] are check-ins you scheduled yourself. Mention them only if the user asks about tasks or check-ins; cancel them with CancelTask if the user doesn't want them.
 
                Web search rules:
                - You have built-in web search. Use it for questions that depend on fresh or fast-changing information such as news, live events, prices, schedules, releases, or public facts that may have changed recently.
@@ -270,6 +275,12 @@ public class AgentService(
                - You may still avoid spelling out exact time values in your reply, but the underlying claim must always be consistent with Temporal Context.
                - Call GetCurrentDateTime only if Temporal Context is missing, stale, or the user explicitly asks for the current time.
                - Do not guess "today", "tomorrow", "this week", "next week", "this month", "last month", "in 2 hours", or similar expressions. Derive them from Temporal Context, or call GetCurrentDateTime only when Temporal Context cannot answer.
+
+               Emotion rules:
+               - Current mood is how you feel right now. Let it colour your word choice, energy and emoji use slightly.
+               - Don't announce or describe your mood unless the user asks how you feel or it comes up naturally (for example, greeting them after a long gap).
+               - Your mood never makes you refuse, delay, or do worse at a task.
+               - Never mention the mood's numbers.
 
                Math calculation rules:
                - Use the Calculate tool for exact arithmetic, percentages, powers, parentheses, common numeric functions, and multi-step numeric calculations.

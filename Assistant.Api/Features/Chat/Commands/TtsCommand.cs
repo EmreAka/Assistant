@@ -1,5 +1,8 @@
+using Assistant.Api.Domain.Configurations;
+using Assistant.Api.Features.Chat.Models;
 using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Services.Abstracts;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -8,6 +11,8 @@ namespace Assistant.Api.Features.Chat.Commands;
 public class TtsCommand(
     IChatTurnService chatTurnService,
     ITextToSpeechService textToSpeechService,
+    IEmotionService emotionService,
+    IOptions<EmotionOptions> emotionOptions,
     ITelegramResponseSender responseSender,
     ILogger<TtsCommand> logger
 ) : IBotCommand
@@ -35,7 +40,8 @@ public class TtsCommand(
 
         try
         {
-            var audio = await textToSpeechService.SynthesizeAsync(lastAssistantMessage, cancellationToken);
+            var mood = await GetMoodAsync(chatId.Value, cancellationToken);
+            var audio = await textToSpeechService.SynthesizeAsync(lastAssistantMessage, mood, cancellationToken);
 
             await using var audioStream = new MemoryStream(audio);
             await client.SendAudio(
@@ -50,6 +56,25 @@ public class TtsCommand(
                 chatId.Value,
                 "Ses oluşturulurken bir hata oluştu, lütfen tekrar dener misin?",
                 cancellationToken);
+        }
+    }
+
+    // The current mood shifts the voice slightly. Without it the audio is still sent, just neutral.
+    private async Task<AgentEmotionState?> GetMoodAsync(long chatId, CancellationToken cancellationToken)
+    {
+        if (!emotionOptions.Value.Enabled)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await emotionService.GetByChatIdAsync(chatId, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Mood for TTS could not be loaded; continuing without it. ChatId: {ChatId}", chatId);
+            return null;
         }
     }
 }

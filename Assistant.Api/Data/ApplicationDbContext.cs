@@ -14,6 +14,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<UserMemoryItem> UserMemoryItems { get; set; }
     public DbSet<DeferredIntent> DeferredIntents { get; set; }
     public DbSet<StoredAgentSession> AgentSessions { get; set; }
+    public DbSet<AgentEmotionState> AgentEmotionStates { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

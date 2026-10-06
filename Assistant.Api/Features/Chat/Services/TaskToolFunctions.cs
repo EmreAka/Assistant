@@ -324,7 +324,10 @@ public class TaskToolFunctions(
             ? $"Cron: {intent.CronExpression}"
             : FormatScheduledTime(intent, assistantTimeService);
 
-        return $"- Task ID: {intent.IntentId} | Status: {intent.Status} | Schedule: {schedule} | Instruction: {intent.OriginalInstruction}";
+        // Check-ins the assistant scheduled itself are labeled so they aren't mistaken for user requests.
+        var origin = intent.Origin == DeferredIntentOrigins.Self ? " | [self check-in]" : string.Empty;
+
+        return $"- Task ID: {intent.IntentId} | Status: {intent.Status}{origin} | Schedule: {schedule} | Instruction: {intent.OriginalInstruction}";
     }
 
     private static string FormatScheduledTime(DeferredIntent task, IAssistantTimeService assistantTimeService)

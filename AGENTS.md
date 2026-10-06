@@ -45,12 +45,14 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
    - `StartCommand` registers the Telegram user
    - `ChatCommand` calls **AgentService**
    - `MemoryCommand` lists the active memory items
-5. Successful chat replies are persisted by **ChatTurnService** for later semantic recall and memory extraction
+   - `MoodCommand` shows the assistant's current mood
+   - `TtsCommand` voices the last assistant reply, with delivery shaped by the current mood
+5. Successful chat replies are persisted by **ChatTurnService** for later semantic recall and memory extraction, and an `EmotionUpdateJob` is enqueued for the turn
 
 ### AI Agent Pattern
 
 `AgentService` builds a `ChatClientAgent` (Microsoft.Agents.AI) with:
-- **Context providers**: personality, memory items (`MemoryItemContextProvider`: core items + items relevant to the current message), temporal context, and chat-history search context. The current message is embedded once per run in `AgentService` and the query vector is shared by memory item search and chat-turn search
+- **Context providers**: personality, mood (`EmotionContextProvider`), memory items (`MemoryItemContextProvider`: core items + items relevant to the current message), temporal context, and chat-history search context. The current message is embedded once per run in `AgentService` and the query vector is shared by memory item search and chat-turn search
 - **AI tools** registered via `AIFunctionFactory.Create()`: schedule/list/cancel/reschedule tasks, get current time, math calculation (`Calculate`)
 - **OpenRouter web search**: the `openrouter:web_search` server tool is patched into the outgoing `tools` array by `OpenRouterOptions.CreateRawChatCompletionOptions()` (wired through `ChatOptions.RawRepresentationFactory`). OpenRouter runs the search server-side, so there is no local web search tool function
 - **Reasoning effort per agent**: `AIProviders:OpenRouter:Reasoning` (`Chat`, `MemoryConsolidation`, `MemoryExtraction`) is applied through `ChatOptions.Reasoning`, which the OpenAI adapter sends as `reasoning_effort` (OpenRouter's shorthand for `reasoning.effort`)
@@ -59,17 +61,22 @@ docker build -t assistant:latest -f Assistant.Api/Dockerfile .
 
 **Memory Items**: Instead of inline memory updates via tools, long-term memory is stored as separate facts (`UserMemoryItem`, each with a `vector(768)` embedding). `MemoryExtractionJob` sends unprocessed chat turns to `MemoryExtractionAgentService`, which extracts candidate facts (structured output via `GetResponseAsync<T>`, only facts the user stated). Each candidate is embedded and compared with its nearest active items; candidates without neighbors are added directly, the rest go through one reconcile call returning `add`/`update`/`delete`/`noop`. Decisions are validated in code (target must be one of the offered neighbors) and applied in one `SaveChanges`. The memory agent runs on its own model (`MemoryItems:Model`, default `deepseek/deepseek-v4.1-flash`) at `Reasoning:MemoryExtraction` (default `ExtraHigh`, sent as `xhigh`); the model is switched per request with `ChatOptions.ModelId` on the shared chat client. `update` supersedes the old row instead of editing it; `delete` is soft. On first run, a user's active `UserMemoryManifest` is imported once. See `MEMORY_ITEMS_PLAN.md`.
 
+**Emotion**: the assistant has a per-user mood (`AgentEmotionState`: valence -1..1, arousal 0..1, a short label and reason), see `EMOTION_PLAN.md`. The chat model only reads it, through `EmotionContextProvider` plus the "Emotion rules" in the chat instructions. After each chat turn, `EmotionUpdateJob` asks `EmotionAgentService` (model `Emotion:Model`, `Reasoning:Emotion`, structured output) to classify the turn into an event type (`Emotion:Events`) and an intensity (`Emotion:IntensityMultipliers`), given the persona, the current mood and the user's core memory items. The model never returns numbers: `EmotionReaction.ToDelta` maps the classification to a fixed delta from config, and `EmotionService.ApplyAsync` caps it (`MaxDeltaPerTurn`), clamps it, and upserts. `LastTurnId` drops out-of-order updates. The mood decays toward the baseline on read (`EmotionService.Decay`, half-life `HalfLifeHours`); once more than half has faded, the stored label and reason are replaced by a fixed label for the mood's quadrant (`EmotionService.GetQuadrant`, also used by `/mood`'s emoji and the TTS delivery). Mood failures never break a chat reply.
+
+**Self check-ins** (`Emotion:CheckIns`, off by default): the emotion model may also return a follow-up for an upcoming event the user mentioned. `EmotionUpdateJob` validates it (future, within `MaxDaysAhead`), moves it out of quiet hours, skips it if a self check-in is already pending, and schedules it as a one-off `DeferredIntent` with `Origin = self`. `DeferredIntentDispatchJob` cancels it if check-ins were switched off or the user wrote within `MinMinutesSinceLastMessage`; otherwise it runs the agent with check-in instructions. `ListTasks` labels these `[self check-in]`.
+
 **Legacy manifest consolidation** (`MemoryConsolidationAgentService`/`Job`/`Coordinator`, `MemoryContextProvider`) is kept in the code but switched off: its trigger in `ChatCommand` and its provider in `AgentService` are commented out.
 
 Current AI provider usage:
 - **OpenRouter** (`AIProviders:OpenRouter`) — main chat/agent model (`google/gemini-3.1-flash-lite`) used by `AgentService`, plus `MemoryItems:Model` (`deepseek/deepseek-v4.1-flash`) for memory extraction, server-side web search, and embeddings (one input per request, ZDR).
-- **xAI** (`AIProviders:XAI`) — text-to-speech only (`/tts`).
+- **OpenRouter** `Emotion:Model` (`deepseek/deepseek-v4.1-flash`) — mood update classification.
+- **xAI** (`AIProviders:XAI`) — text-to-speech only (`/tts`). The mood maps to the `speed` parameter and `<soft>` speech tags; xAI has no emotion parameter.
 - **Google AI Studio** (`AIProviders:GoogleAIStudio`) — kept for optional/experimental use. `WebSearchToolFunctions` and `CreateGoogleGenAIChatClient()` still exist but are not registered on any active path.
 
 ### Feature Structure
 
 Features in `Assistant.Api/Features/` are self-contained slices:
-- `Chat/` — `AgentService`, tool functions (task, time, math, plus the unregistered `WebSearchToolFunctions`), `ChatCommand`, deferred task dispatch, chat-turn storage/search
+- `Chat/` — `AgentService`, tool functions (task, time, math, plus the unregistered `WebSearchToolFunctions`), `ChatCommand`, `MoodCommand`, `TtsCommand`, deferred task dispatch, chat-turn storage/search, emotion (`EmotionService`, `EmotionAgentService`, `EmotionUpdateJob`, `EmotionContextProvider`)
 - `UserManagement/` — `StartCommand`, `MemoryCommand`, personality profile, Telegram user registration, memory items (`MemoryItemService`, extraction agent/job/coordinator), and the legacy memory manifest and consolidation code.
 
 Legacy cross-cutting infrastructure still lives outside the feature folders:
@@ -84,13 +91,14 @@ Legacy cross-cutting infrastructure still lives outside the feature folders:
 | `DeferredIntentDispatchJob` | Executes scheduled/recurring user tasks through `AgentService` |
 | `ChatTurnEmbeddingJob` | Embeds chat turns when un-embedded turns reach `Embeddings:TurnsThreshold` |
 | `MemoryExtractionJob` | Extracts and reconciles memory items when unprocessed turns reach `MemoryItems:TurnsThreshold`, or once for the manifest import |
+| `EmotionUpdateJob` | After each saved chat turn when `Emotion:Enabled`; no automatic retries |
 | `MemoryConsolidationJob` | Legacy, switched off (trigger commented out in `ChatCommand`) |
 
 Hangfire uses PostgreSQL storage. Dashboard at `/hangfire` in development.
 
 ### Database (EF Core + PostgreSQL)
 
-Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `UserMemoryItem`, `DeferredIntent`, `StoredAgentSession`, plus the legacy `UserMemoryManifest` and `UserMemoryConsolidationState`
+Key entities: `TelegramUser`, `AssistantPersonality`, `ChatTurn`, `UserMemoryItem`, `DeferredIntent`, `StoredAgentSession`, `AgentEmotionState`, plus the legacy `UserMemoryManifest` and `UserMemoryConsolidationState`
 
 Important persistence notes:
 - `ChatTurn` stores normalized user/assistant messages plus a `vector(768)` embedding (filled by `ChatTurnEmbeddingJob`) and is searched semantically via pgvector cosine distance. The old full-text `search_vector` column still exists but is unused
@@ -98,6 +106,8 @@ Important persistence notes:
 - Memory is stored as `UserMemoryItem` rows: `Text`, `Category` (fixed set in `UserMemoryItemCategories`), `IsCore`, `Status` (`active`, `superseded`, `deleted`), `Embedding`, `SourceTurnIds`, `SupersededById`, `ChangeReason`, `LastConfirmedAt`. All pgvector queries for them live in `MemoryItemService`
 - `UserMemoryManifest` rows are kept (read once for the import) but no longer written
 - `StoredAgentSession` (`agent_sessions`) holds one serialized `AgentSession` per chat ID in a `json` column. Not `jsonb`: it reorders keys, and the `$type` discriminators must stay first to deserialize. Saves are a raw `INSERT ... ON CONFLICT` upsert, so nothing is left tracked on the shared `DbContext`
+- `AgentEmotionState` (`agent_emotion_states`) holds one mood row per user, keyed by `telegram_user_id`. Decay is computed on read, never written. Saves are a raw `INSERT ... ON CONFLICT` upsert that only writes when the turn is newer than `last_turn_id`
+- `DeferredIntent.Origin` is `user` (scheduled through the task tools) or `self` (a check-in the assistant scheduled itself)
 - `DeferredIntent.Status` values are `pending`, `scheduled`, `recurring`, `completed`, `cancelled`, `failed`
 - `UserMemoryConsolidationState` tracked the legacy consolidation progress per user and is no longer updated
 
@@ -123,5 +133,7 @@ AIProviders:GoogleAIStudio:ApiKey   # only if you re-enable WebSearchToolFunctio
 ConnectionStrings:PostgreSQL
 ConnectionStrings:HangfireDb
 ```
+
+The `Emotion` section configures the mood feature: `Enabled`, `Model`, baseline mood, `HalfLifeHours`, `MaxDeltaPerTurn`, `Events`, `IntensityMultipliers`, and `CheckIns` (off by default).
 
 `AIProviders:DefaultTimeZoneId` controls timezone for scheduled tasks (default: `Europe/Istanbul`).

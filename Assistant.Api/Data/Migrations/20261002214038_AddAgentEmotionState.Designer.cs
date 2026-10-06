@@ -3,6 +3,7 @@ using System;
 using Assistant.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using NpgsqlTypes;
@@ -13,9 +14,11 @@ using Pgvector;
 namespace Assistant.Api.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261002214038_AddAgentEmotionState")]
+    partial class AddAgentEmotionState
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -158,14 +161,6 @@ namespace Assistant.Api.Data.Migrations
                     b.Property<Guid>("IntentId")
                         .HasColumnType("uuid")
                         .HasColumnName("intent_id");
-
-                    b.Property<string>("Origin")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)")
-                        .HasDefaultValue("user")
-                        .HasColumnName("origin");
 
                     b.Property<string>("OriginalInstruction")
                         .IsRequired()

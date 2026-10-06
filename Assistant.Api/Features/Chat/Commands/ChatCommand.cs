@@ -1,6 +1,9 @@
+using Assistant.Api.Domain.Configurations;
 using Assistant.Api.Features.Chat.Services;
 using Assistant.Api.Features.UserManagement.Services;
 using Assistant.Api.Services.Abstracts;
+using Hangfire;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 
@@ -12,6 +15,8 @@ public class ChatCommand(
     // IMemoryConsolidationCoordinator memoryConsolidationCoordinator, // used by the disabled consolidation trigger
     IMemoryExtractionCoordinator memoryExtractionCoordinator,
     IChatTurnEmbeddingCoordinator chatTurnEmbeddingCoordinator,
+    IBackgroundJobClient backgroundJobClient,
+    IOptions<EmotionOptions> emotionOptions,
     ITelegramResponseSender responseSender,
     ILogger<ChatCommand> logger
 ) : IBotCommand
@@ -79,6 +84,19 @@ public class ChatCommand(
                 catch (Exception ex)
                 {
                     logger.LogError(ex, "Chat turn embedding queue check failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
+                }
+
+                // Runs in the background so the mood update adds no latency to the reply.
+                if (emotionOptions.Value.Enabled)
+                {
+                    try
+                    {
+                        backgroundJobClient.Enqueue<EmotionUpdateJob>(job => job.ExecuteAsync(savedTurn.TelegramUserId, savedTurn.TurnId));
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Mood update queue failed after saving chat turn. TelegramUserId: {TelegramUserId}", savedTurn.TelegramUserId);
+                    }
                 }
             }
 
